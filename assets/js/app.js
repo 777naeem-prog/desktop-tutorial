@@ -239,7 +239,7 @@ function viewDocuments(type) {
     <section class="card" id="doc-list"></section>`;
   const draw = () => {
     const q = listQuery.trim().toLowerCase();
-    const list = db.docs.filter((d) => (type === 'all' || d.type === type) && (!q || JSON.stringify([d.number, d.customer, d.items, d.refNumber]).toLowerCase().includes(q)))
+    const list = db.docs.filter((d) => (type === 'all' || d.type === type) && (!q || JSON.stringify([d.number, d.customer, d.items, d.refNumber, d.reference]).toLowerCase().includes(q)))
       .sort((a, b) => (b.date + (b.createdAt || 0)).localeCompare(a.date + (a.createdAt || 0)));
     $('#doc-list').innerHTML = list.length ? docTable(list) : `<div class="empty"><b>${q ? 'No matches.' : 'Nothing here yet.'}</b><p>${q ? 'Try a different search.' : 'Documents you create will be listed here.'}</p></div>`;
   };
@@ -304,8 +304,9 @@ function viewEditor() {
             ${f('Name', 'customer.name', { list: 'custlist', ph: 'Start typing — saved customers appear' })}
             ${f('Phone', 'customer.phone')}
             ${f('Email', 'customer.email')}
+            ${f(`${s.tax.name || 'Tax'} no`, 'customer.taxNo')}
             ${f('ID / company reg no', 'customer.idNo')}
-            ${f('Address', 'customer.address', { area: 2, cls: 'span2' })}
+            ${f('Address', 'customer.address', { area: 2 })}
           </div>
           <datalist id="custlist">${db.customers.map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
         </section>
@@ -326,9 +327,10 @@ function viewEditor() {
             ${f('Number', 'number')}
             ${f('Date', 'date', { type: 'date' })}
             ${T.dateLabel ? f(T.dateLabel, 'dueDate', { type: 'date' }) : f('Against invoice', 'refNumber')}
+            ${f('Reference', 'reference', { ph: 'e.g. F20 White 2014' })}
             ${f('Overall discount', 'discount', { num: true, ph: '0.00' })}
             ${f(`${s.tax.name || 'Tax'} rate %`, 'taxRate', { num: true, ph: '0' })}
-            <div class="fld"><span>${esc(s.tax.name || 'Tax')}</span>
+            <div class="fld span4 checks"><span>${esc(s.tax.name || 'Tax')}</span>
               <label class="check"><input type="checkbox" data-f="taxEnabled" ${d.taxEnabled ? 'checked' : ''}> Charge ${esc(s.tax.name || 'tax')}</label>
               <label class="check"><input type="checkbox" data-f="taxInclusive" ${d.taxInclusive ? 'checked' : ''}> Prices already include it</label>
             </div>
@@ -556,7 +558,11 @@ function viewSettings() {
             </div></div>
           </div>
           <div class="grid g2">${f('Footer line', 'footer')}
-            <div class="fld"><span>Signatures</span><label class="check"><input type="checkbox" data-s="signatures" ${s.signatures ? 'checked' : ''}> Show signature lines</label></div></div>
+            ${f('Acceptance wording (next to signatures)', 'acceptText')}
+            ${f('Queries line (printed above the footer)', 'contactLine', { cls: 'span2', ph: 'If you have any questions concerning this invoice, contact …' })}
+            <div class="fld span2 checks"><span>Options</span>
+              <label class="check"><input type="checkbox" data-s="signatures" ${s.signatures ? 'checked' : ''}> Show customer acceptance and signature lines</label>
+              <label class="check"><input type="checkbox" data-s="eoe" ${s.eoe ? 'checked' : ''}> Print E&amp;OE under the total</label></div></div>
         </section>
 
         <section class="card pad"><h3>Money &amp; tax</h3><div class="grid g4">
@@ -586,7 +592,7 @@ function viewSettings() {
         <section class="card pad"><h3>Backup</h3>
           <p class="hint">Everything is stored on this computer, in this browser. Export a backup regularly and keep it somewhere safe (USB, Google Drive, email it to yourself).</p>
           <div class="addrow"><button class="btn primary" data-act="export">Export backup</button>
-            <label class="btn">Restore from backup<input type="file" id="import-file" accept="application/json,.json" hidden></label></div>
+            <label class="btn">Restore backup or load setup file<input type="file" id="import-file" accept="application/json,.json" hidden></label></div>
           <p class="hint">${s.lastBackup ? `Last backup: ${fmtDate(s.lastBackup)}` : 'No backup made yet.'} · ${db.docs.length} documents, ${db.customers.length} customers, ${db.vehicles.length} vehicles.</p>
         </section>
       </div>
@@ -634,6 +640,12 @@ function importBackup(file) {
   r.onload = () => {
     try {
       const data = JSON.parse(r.result);
+      // a setup file only fills in company details and preferences; it never touches records
+      if (data.kind === 'nn-pos-setup' && data.settings) {
+        mergeDeep(db.settings, data.settings);
+        saveDb(); toast('Company details loaded'); route();
+        return;
+      }
       if (!data.settings || !Array.isArray(data.docs)) throw new Error('bad');
       if (!confirm(`Restore this backup (${data.docs.length} documents)? It replaces everything currently in the app.`)) return;
       db = mergeDeep(defaultData(), data);

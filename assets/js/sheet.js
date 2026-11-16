@@ -27,6 +27,7 @@ function renderSheet(d) {
     co.phone && `<div><b>T</b> ${esc(co.phone)}</div>`,
     co.email && `<div><b>E</b> ${esc(co.email)}</div>`,
     co.website && `<div><b>W</b> ${esc(co.website)}</div>`,
+    co.taxNo && `<div><b>${taxName} no</b> ${esc(co.taxNo)}</div>`,
   ].filter(Boolean).join('');
 
   const mark = s.logo
@@ -36,7 +37,8 @@ function renderSheet(d) {
   const meta = [
     ['Date', fmtDate(d.date)],
     T.dateLabel && d.dueDate ? [T.dateLabel, fmtDate(d.dueDate)] : null,
-    d.refNumber ? [d.type === 'refund' ? 'Against invoice' : 'Reference', esc(d.refNumber)] : null,
+    d.reference ? ['Reference', esc(d.reference)] : null,
+    d.refNumber ? [d.type === 'refund' ? 'Against invoice' : 'Quotation', esc(d.refNumber)] : null,
   ].filter(Boolean).map(([k, v]) => `<div class="meta-row"><span>${k}</span><b>${v}</b></div>`).join('');
 
   const custLines = [
@@ -72,12 +74,16 @@ function renderSheet(d) {
   }).join('') || `<tr><td></td><td class="it-empty" colspan="${c.hasLineDisc ? 5 : 4}">No items yet</td></tr>`;
 
   const tot = [];
-  const showSub = c.discount > 0 || (c.rate > 0 && !d.taxInclusive);
-  if (showSub) tot.push(`<div class="t-row"><span>Subtotal</span><span>${money(c.itemsTotal)}</span></div>`);
-  if (c.discount > 0) tot.push(`<div class="t-row"><span>Discount</span><span>−${money(c.discount)}</span></div>`);
-  if (c.rate > 0 && !d.taxInclusive) tot.push(`<div class="t-row"><span>${taxName} @ ${c.rate}%</span><span>${money(c.tax)}</span></div>`);
+  if (c.discount > 0) {
+    tot.push(`<div class="t-row"><span>Subtotal</span><span>${money(c.itemsTotal)}</span></div>`);
+    tot.push(`<div class="t-row"><span>Discount</span><span>−${money(c.discount)}</span></div>`);
+  }
+  if (c.rate > 0) {
+    tot.push(`<div class="t-row"><span>Total excl. ${taxName}</span><span>${money(c.subtotal)}</span></div>`);
+    tot.push(`<div class="t-row"><span>${taxName} @ ${c.rate}%</span><span>${money(c.tax)}</span></div>`);
+  }
   tot.push(`<div class="t-row t-total"><span>${d.type === 'refund' ? 'Total refund' : 'Total'}</span><span>${money(c.total)}</span></div>`);
-  if (c.rate > 0 && d.taxInclusive) tot.push(`<div class="t-row t-small"><span>Includes ${taxName} @ ${c.rate}%</span><span>${money(c.tax)}</span></div>`);
+  if (s.eoe && d.type !== 'refund') tot.push('<div class="t-row t-small"><span></span><span>E&amp;OE</span></div>');
   if (d.type === 'invoice' && c.paid > 0) {
     tot.push(`<div class="t-row"><span>Paid</span><span>−${money(c.paid)}</span></div>`);
     tot.push(`<div class="t-row t-due"><span>Balance due</span><span>${money(Math.max(0, c.balance))}</span></div>`);
@@ -98,12 +104,13 @@ function renderSheet(d) {
     ? `<div class="stamp ${st.label === 'Refunded' ? 'stamp-ref' : ''}">${st.label}</div>` : '';
 
   const sigs = s.signatures ? `<div class="sigs">
-      <div><span></span><em>${d.type === 'quote' ? 'Accepted by customer' : d.type === 'refund' ? 'Received by customer' : 'Customer signature'}</em></div>
+      <p class="sigs-head">For and on behalf of <b>${esc(cust.name) || 'the customer'}</b>${s.acceptText ? ` — ${esc(s.acceptText)}` : ''}</p>
+      <div><span></span><em>Print name</em></div>
+      <div><span></span><em>Signature</em></div>
       <div><span></span><em>Date</em></div>
-      <div><span></span><em>For ${esc(co.name)}</em></div>
     </div>` : '';
 
-  const legal = [co.regNo && `Reg no ${esc(co.regNo)}`, co.taxNo && `${taxName} no ${esc(co.taxNo)}`].filter(Boolean).join('  ·  ');
+  const legal = co.regNo ? `Reg no ${esc(co.regNo)}` : '';
 
   return `<article class="sheet lh-${esc(s.letterhead)}" style="--accent:${esc(s.accent)};--on-accent:${onAccent(s.accent)}">
     <header class="lh">
@@ -138,6 +145,7 @@ function renderSheet(d) {
 
     ${sigs}
     ${d.terms ? `<div class="terms"><h4>Terms</h4><p>${nl2br(d.terms)}</p></div>` : ''}
+    ${s.contactLine ? `<p class="queries">${nl2br(s.contactLine)}</p>` : ''}
     <footer class="sheet-foot"><span>${esc(s.footer)}</span><span>${legal}</span></footer>
   </article>`;
 }

@@ -19,8 +19,8 @@ function defaultData() {
       logo: '',
       accent: '#0f4d3a',
       letterhead: 'slim',
-      currency: '',
-      tax: { name: 'VAT', rate: 0, inclusive: true },
+      currency: 'R',
+      tax: { name: 'VAT', rate: 15, inclusive: true },
       bank: '',
       terms: {
         invoice: 'Vehicles are sold as is unless otherwise agreed in writing. Ownership passes only once payment has been received in full.',
@@ -32,6 +32,9 @@ function defaultData() {
       dueDays: 7,
       validDays: 14,
       signatures: true,
+      acceptText: 'Accepted without prejudice',
+      eoe: true,
+      contactLine: '',
       footer: 'Thank you for your business.',
       lastBackup: '',
     },
@@ -182,7 +185,8 @@ function outstanding(d) {
 /* ---------- numbering ---------- */
 function peekNumber(type) {
   const n = db.settings.numbering[type];
-  return n.prefix + String(n.next).padStart(4, '0');
+  // a bare running number (no prefix), e.g. 189, is left unpadded
+  return n.prefix ? n.prefix + String(n.next).padStart(4, '0') : String(n.next);
 }
 function claimNumber(type, used) {
   if (used === peekNumber(type)) db.settings.numbering[type].next = num(db.settings.numbering[type].next) + 1;
@@ -220,7 +224,7 @@ function newDoc(type) {
     discount: 0,
     taxEnabled: num(s.tax.rate) > 0, taxRate: num(s.tax.rate), taxInclusive: !!s.tax.inclusive,
     notes: '', terms: s.terms[type] || '',
-    payments: [], refOf: '', refNumber: '', reason: '', refundMethod: 'Bank transfer', convertedTo: '',
+    payments: [], reference: '', refOf: '', refNumber: '', reason: '', refundMethod: 'Bank transfer', convertedTo: '',
   };
 }
 
