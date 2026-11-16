@@ -223,7 +223,7 @@ function viewDashboard() {
 
 /* ---------- documents list ---------- */
 function docTable(list) {
-  return `<table class="tbl"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
+  return `<table class="tbl tbl-docs"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
     ${list.map((d) => `<tr data-act="open-doc" data-id="${d.id}"><td>${plate(d)}</td><td class="nowrap">${fmtDate(d.date)}</td><td class="who"><b>${esc(d.customer.name)}</b><span>${esc(docSummary(d))}</span></td><td class="r nowrap"><b>${d.type === 'refund' ? '−' : ''}${money(calcDoc(d).total)}</b></td><td>${pill(docStatus(d))}</td></tr>`).join('')}
   </tbody></table>`;
 }
@@ -802,6 +802,8 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 window.addEventListener('resize', fitSheets);
 window.addEventListener('hashchange', route);
+
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 loadDb();
 syncStock();

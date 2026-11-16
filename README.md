@@ -14,6 +14,12 @@ Double-click **`index.html`** — it opens in Chrome or Edge and works offline. 
 - **Payments** — record deposits and part-payments on an invoice; the balance and PAID stamp update themselves.
 - **Settings** — company details, logo, accent colour, letterhead style, currency, tax, banking details, default terms and numbering.
 
+## On an iPhone
+
+The app has a phone layout and can be added to the home screen, but a phone cannot open a file from a computer: the app first has to be put online at a web address. Then, in Safari, open the address and choose Share → Add to Home Screen. It opens full-screen like an app and keeps working without signal.
+
+Until cloud sync is added, the phone and the desktop each keep their own separate records.
+
 ## Backups — important
 
 All data lives in the browser on this one computer. In **Settings → Backup**, press *Export backup* regularly and keep the file somewhere safe. *Restore from backup* loads it again (also how you move to a new computer). Clearing the browser's site data erases the records, so keep backups.
