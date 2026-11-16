@@ -64,10 +64,11 @@ function loadDb() {
   }
 }
 
-function saveDb() {
+function saveDb(fromSync) {
   syncStock();
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(db));
+    if (!fromSync && typeof Sync !== 'undefined') Sync.schedule();
     return true;
   } catch (e) {
     console.error(e);

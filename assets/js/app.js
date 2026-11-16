@@ -101,7 +101,8 @@ function renderSide() {
   const is = (...p) => (p.includes(page) ? 'on' : '');
   document.documentElement.style.setProperty('--accent', s.accent);
   document.documentElement.style.setProperty('--on-accent', onAccent(s.accent));
-  const lastB = s.lastBackup ? `Backed up ${fmtDate(s.lastBackup)}` : 'Not backed up yet';
+  const sy = Sync.status();
+  const lastB = sy.signedIn ? sy.text : s.lastBackup ? `Backed up ${fmtDate(s.lastBackup)}` : 'Not backed up yet';
   $('#side').innerHTML = `
     <a class="brand" href="#/dashboard">
       ${s.logo ? `<img src="${esc(s.logo)}" alt="">` : `<span class="brand-mono">${esc(monogram(s.company.name))}</span>`}
@@ -121,7 +122,7 @@ function renderSide() {
       <a class="${is('customers')}" href="#/customers">${icon('users')} Customers</a>
       <a class="${is('settings')}" href="#/settings">${icon('gear')} Settings</a>
     </nav>
-    <a class="side-foot" href="#/settings"><span class="dot ${s.lastBackup ? 'ok' : ''}"></span>${lastB}</a>`;
+    <a class="side-foot" href="#/settings"><span class="dot ${(sy.signedIn ? sy.ok : s.lastBackup) ? 'ok' : ''}"></span><span id="side-status">${esc(lastB)}</span></a>`;
 }
 
 /* ---------- router ---------- */
@@ -580,6 +581,8 @@ function viewSettings() {
           ${['invoice', 'quote', 'refund'].map((t) => `<div class="numbox"><b>${DOC_TYPES[t].plural}</b>${f('Prefix', `numbering.${t}.prefix`)}${f('Next number', `numbering.${t}.next`, { num: true })}</div>`).join('')}
         </div></section>
 
+        <section class="card pad" id="cloud-card">${cloudCard()}</section>
+
         <section class="card pad"><h3>Backup</h3>
           <p class="hint">Everything is stored on this computer, in this browser. Export a backup regularly and keep it somewhere safe (USB, Google Drive, email it to yourself).</p>
           <div class="addrow"><button class="btn primary" data-act="export">Export backup</button>
@@ -640,10 +643,75 @@ function importBackup(file) {
   r.readAsText(file);
 }
 
+/* ---------- cloud sync ---------- */
+function cloudCard() {
+  const sy = Sync.status();
+  if (sy.signedIn) {
+    return `<h3>Cloud sync</h3>
+      <p class="hint">Signed in as <b>${esc(sy.email)}</b>. Everything you do here is copied to the cloud and to any other device signed in with this account.</p>
+      <p class="sync-line"><span class="dot ${sy.ok ? 'ok' : ''}"></span>${esc(sy.text)}</p>
+      <div class="addrow"><button class="btn primary" data-act="sync-now">Sync now</button><button class="btn ghost" data-act="sign-out">Sign out on this device</button></div>`;
+  }
+  return `<h3>Cloud sync</h3>
+    <p class="hint">Use the same records on the office computer and the phone, with an automatic online copy. Create one account for the business, then sign in with it on each device.</p>
+    <div class="grid g2">
+      <label class="fld"><span>Email</span><input type="email" id="cloud-email" autocomplete="username"></label>
+      <label class="fld"><span>Password (8+ characters)</span><input type="password" id="cloud-pass" autocomplete="current-password"></label>
+    </div>
+    <div class="addrow" style="margin-top:13px"><button class="btn primary" data-act="cloud-in">Sign in</button><button class="btn" data-act="cloud-up">Create account</button></div>`;
+}
+
+async function cloudAuth(mode, email, password, btn) {
+  email = (email || '').trim();
+  if (!email || (password || '').length < 8) { toast('Enter an email and a password of at least 8 characters'); return false; }
+  const label = btn && btn.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = 'Please wait…'; }
+  try {
+    if (mode === 'up') {
+      const r = await Sync.signUp(email, password);
+      if (r === 'confirm') { toast('Check your email and tap the confirmation link, then sign in'); return false; }
+      toast('Account created — sync is on');
+    } else {
+      await Sync.signIn(email, password);
+      toast('Signed in — records are syncing');
+    }
+    closeModal(); route();
+    return true;
+  } catch (e) {
+    toast(e instanceof TypeError ? 'No internet connection' : e.message);
+    return false;
+  } finally {
+    if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+function signInModal() {
+  modal('Sign in', `
+    <p class="hint">Use the email and password of the business account. Your records will appear on this device.</p>
+    <div class="grid g2">${fld('Email', 'name', 'email', '', { type: 'email', req: true })}${fld('Password', 'name', 'password', '', { type: 'password', req: true })}</div>`,
+  (data) => { cloudAuth('in', data.email, data.password, $('#modal-root .btn.primary')); return false; }, { submit: 'Sign in' });
+}
+
+/* called by sync.js */
+function onSyncStatus() {
+  const sy = Sync.status();
+  const el = $('#side-status');
+  if (el && sy.signedIn) { el.textContent = sy.text; el.previousElementSibling.classList.toggle('ok', sy.ok); }
+  const line = $('#cloud-card .sync-line');
+  if (line) line.innerHTML = `<span class="dot ${sy.ok ? 'ok' : ''}"></span>${esc(sy.text)}`;
+}
+function onSyncApplied() {
+  // new records arrived from another device: refresh the screen unless the user is mid-edit
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
+  if (/^#\/(new|edit)\//.test(location.hash) || typing || $('#modal-root').children.length) { renderSide(); return; }
+  route();
+}
+
 function setupModal() {
   const s = db.settings;
   modal('Welcome — let\'s set up your letterhead', `
     <p class="hint">Two minutes now, and every invoice, quotation and refund comes out on your letterhead. You can change all of this later in Settings.</p>
+    <p class="hint">Already using it on another device? <a class="link" href="#" data-act="signin-modal">Sign in to bring your records here</a>.</p>
     <div class="grid g2">
       ${fld('Company name', 'name', 'name', s.company.name, { req: true })}
       ${fld('Phone', 'name', 'phone', s.company.phone)}
@@ -750,6 +818,14 @@ const ACT = {
   'lh-style': (t) => { db.settings.letterhead = t.dataset.k; saveDb(); route(); },
   'logo-clear': () => { db.settings.logo = ''; saveDb(); route(); },
   export: () => exportBackup(),
+  'signin-modal': (t, e) => { e.preventDefault(); signInModal(); },
+  'cloud-in': (t) => cloudAuth('in', $('#cloud-email').value, $('#cloud-pass').value, t),
+  'cloud-up': (t) => cloudAuth('up', $('#cloud-email').value, $('#cloud-pass').value, t),
+  'sync-now': () => { Sync.run(); toast('Syncing…'); },
+  'sign-out': () => {
+    if (!confirm('Sign out on this device? Your records stay on this device and in the cloud.')) return;
+    Sync.signOut(); route();
+  },
 };
 
 document.addEventListener('click', (e) => {
@@ -808,3 +884,4 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) naviga
 loadDb();
 syncStock();
 route();
+Sync.schedule(400);

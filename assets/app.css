@@ -378,3 +378,8 @@ h1 .plate { font-size: 15px; padding: 8px 12px; transform: translateY(-2px); }
   .modal footer { padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); } .modal footer .btn { flex: 1; }
   #toast { bottom: calc(86px + env(safe-area-inset-bottom)); white-space: nowrap; }
 }
+
+/* cloud sync */
+.link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.sync-line { display: flex; align-items: center; gap: 9px; font-size: 14px; margin: 4px 0 13px; }
+.btn:disabled { opacity: .55; cursor: default; }

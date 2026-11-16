@@ -14,15 +14,19 @@ Double-click **`index.html`** — it opens in Chrome or Edge and works offline. 
 - **Payments** — record deposits and part-payments on an invoice; the balance and PAID stamp update themselves.
 - **Settings** — company details, logo, accent colour, letterhead style, currency, tax, banking details, default terms and numbering.
 
+## Cloud sync (office computer + phone)
+
+In **Settings → Cloud sync**, create one account for the business (email and password), then confirm it by tapping the link in the email you receive. Sign in with that same account on every device. From then on each invoice, quotation, refund, customer, vehicle and setting is copied to the cloud and to the other devices within about a minute. Without internet the app keeps working and catches up when the connection returns.
+
+On a new device, choose *Sign in to bring your records here* on the welcome screen.
+
 ## On an iPhone
 
-The app has a phone layout and can be added to the home screen, but a phone cannot open a file from a computer: the app first has to be put online at a web address. Then, in Safari, open the address and choose Share → Add to Home Screen. It opens full-screen like an app and keeps working without signal.
-
-Until cloud sync is added, the phone and the desktop each keep their own separate records.
+A phone cannot open a file from a computer, so the app has to be online at a web address. In Safari, open the address, then Share → Add to Home Screen. It opens full-screen like an app and keeps working without signal. Sign in under Cloud sync to see the same records as the office computer.
 
 ## Backups — important
 
-All data lives in the browser on this one computer. In **Settings → Backup**, press *Export backup* regularly and keep the file somewhere safe. *Restore from backup* loads it again (also how you move to a new computer). Clearing the browser's site data erases the records, so keep backups.
+Without cloud sync, all data lives in the browser on this one computer. With cloud sync there is also an online copy, but a backup file is still worth keeping. In **Settings → Backup**, press *Export backup* regularly and keep the file somewhere safe. *Restore from backup* loads it again (also how you move to a new computer). Clearing the browser's site data erases the records, so keep backups.
 
 ## For developers
 
@@ -30,5 +34,7 @@ Plain HTML/CSS/JS, no build step and no dependencies. Data is stored in `localSt
 
 - `assets/js/store.js` — data, defaults, totals/tax/status calculations
 - `assets/js/sheet.js` — the printable letterhead document
+- `assets/js/sync.js` — cloud sync (Supabase project `nn-trading-pos`; table `public.records`, one row per record, row-level security per user)
 - `assets/js/app.js` — screens, routing, actions
+- `sw.js`, `manifest.webmanifest` — offline support and home-screen install
 - `assets/app.css` — app UI, letterhead and print styles
