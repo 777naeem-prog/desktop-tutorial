@@ -20,6 +20,13 @@ In **Settings → Cloud sync**, create one account for the business (email and p
 
 On a new device, choose *Sign in to bring your records here* on the welcome screen.
 
+## Security
+
+- Only invited email addresses can create an account; each account sees only its own records.
+- **App lock** (Settings): ask for a PIN whenever the app opens on a device.
+- **Forgot password?** and **Change password** are in Settings → Cloud sync.
+- Use a long password that is not used anywhere else, and keep a passcode on the phone and computer.
+
 ## On an iPhone
 
 A phone cannot open a file from a computer, so the app has to be online at a web address. In Safari, open the address, then Share → Add to Home Screen. It opens full-screen like an app and keeps working without signal. Sign in under Cloud sync to see the same records as the office computer.

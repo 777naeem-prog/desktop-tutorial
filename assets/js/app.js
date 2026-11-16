@@ -588,6 +588,7 @@ function viewSettings() {
         </div></section>
 
         <section class="card pad" id="cloud-card">${cloudCard()}</section>
+        ${lockCard()}
 
         <section class="card pad"><h3>Backup</h3>
           <p class="hint">Everything is stored on this computer, in this browser. Export a backup regularly and keep it somewhere safe (USB, Google Drive, email it to yourself).</p>
@@ -662,7 +663,7 @@ function cloudCard() {
     return `<h3>Cloud sync</h3>
       <p class="hint">Signed in as <b>${esc(sy.email)}</b>. Everything you do here is copied to the cloud and to any other device signed in with this account.</p>
       <p class="sync-line"><span class="dot ${sy.ok ? 'ok' : ''}"></span>${esc(sy.text)}</p>
-      <div class="addrow"><button class="btn primary" data-act="sync-now">Sync now</button><button class="btn ghost" data-act="sign-out">Sign out on this device</button></div>`;
+      <div class="addrow"><button class="btn primary" data-act="sync-now">Sync now</button><button class="btn" data-act="new-pass">Change password</button><button class="btn ghost" data-act="sign-out">Sign out on this device</button></div>`;
   }
   return `<h3>Cloud sync</h3>
     <p class="hint">Use the same records on the office computer and the phone, with an automatic online copy. Create one account for the business, then sign in with it on each device.</p>
@@ -670,7 +671,7 @@ function cloudCard() {
       <label class="fld"><span>Email</span><input type="email" id="cloud-email" autocomplete="username"></label>
       <label class="fld"><span>Password (8+ characters)</span><input type="password" id="cloud-pass" autocomplete="current-password"></label>
     </div>
-    <div class="addrow" style="margin-top:13px"><button class="btn primary" data-act="cloud-in">Sign in</button><button class="btn" data-act="cloud-up">Create account</button></div>`;
+    <div class="addrow cloud-acts"><button class="btn primary" data-act="cloud-in">Sign in</button><button class="btn" data-act="cloud-up">Create account</button><button class="btn ghost" data-act="cloud-forgot">Forgot password?</button></div>`;
 }
 
 async function cloudAuth(mode, email, password, btn) {
@@ -702,6 +703,86 @@ function signInModal() {
     <p class="hint">Use the email and password of the business account. Your records will appear on this device.</p>
     <div class="grid g2">${fld('Email', 'name', 'email', '', { type: 'email', req: true })}${fld('Password', 'name', 'password', '', { type: 'password', req: true })}</div>`,
   (data) => { cloudAuth('in', data.email, data.password, $('#modal-root .btn.primary')); return false; }, { submit: 'Sign in' });
+}
+
+function newPasswordModal() {
+  modal('Choose a new password', `
+    <p class="hint">Use a long password that you do not use anywhere else.</p>
+    <div class="grid g2">${fld('New password (10+ characters)', 'name', 'p1', '', { type: 'password', req: true })}${fld('Type it again', 'name', 'p2', '', { type: 'password', req: true })}</div>`,
+  (data) => {
+    if (data.p1.length < 10) { toast('Use at least 10 characters'); return false; }
+    if (data.p1 !== data.p2) { toast('The two passwords do not match'); return false; }
+    Sync.setPassword(data.p1).then(() => { closeModal(); toast('Password changed'); }).catch((e) => toast(e instanceof TypeError ? 'No internet connection' : e.message));
+    return false;
+  }, { submit: 'Save password' });
+}
+
+/* ---------- app lock (PIN) ----------
+   Keeps a casual pair of hands out of an unlocked phone or computer. The PIN is per device
+   and is not a substitute for the device's own passcode. */
+const PIN_KEY = 'nn-pos-pin';
+const Lock = (() => {
+  let hiddenAt = 0, fails = 0;
+  const get = () => { try { return JSON.parse(localStorage.getItem(PIN_KEY) || 'null'); } catch (e) { return null; } };
+  const available = () => !!(window.crypto && crypto.subtle);
+  async function digest(salt, pin) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pin));
+    return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
+  }
+  async function set(pin) { const salt = uid() + uid(); localStorage.setItem(PIN_KEY, JSON.stringify({ salt, hash: await digest(salt, pin) })); }
+  async function check(pin) { const p = get(); return !!p && p.hash === await digest(p.salt, pin); }
+  function show() {
+    if (!get() || !available() || $('#lock')) return;
+    closeModal();
+    document.body.classList.add('locked');
+    const el = document.createElement('div');
+    el.id = 'lock';
+    el.innerHTML = `<form autocomplete="off"><div class="lock-mono">${esc(monogram(db.settings.company.name))}</div><h2>${esc(db.settings.company.name)}</h2><p>Enter your PIN to open</p>
+      <input type="password" inputmode="numeric" maxlength="8" aria-label="PIN" autocomplete="off"><button class="btn primary block">Unlock</button><p class="lock-msg" role="alert"></p></form>`;
+    document.body.appendChild(el);
+    const input = $('input', el), msg = $('.lock-msg', el), btn = $('button', el);
+    input.focus();
+    $('form', el).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (btn.disabled) return;
+      if (await check(input.value)) { fails = 0; el.remove(); document.body.classList.remove('locked'); return; }
+      fails++; input.value = '';
+      if (fails >= 5) {
+        btn.disabled = true; msg.textContent = 'Too many tries. Wait 30 seconds.';
+        setTimeout(() => { btn.disabled = false; msg.textContent = ''; fails = 0; }, 30000);
+      } else msg.textContent = 'Wrong PIN';
+    });
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (hiddenAt && Date.now() - hiddenAt > 120000) show();
+  });
+  return { has: () => !!get(), available, set, check, clear: () => localStorage.removeItem(PIN_KEY), show };
+})();
+
+function lockCard() {
+  if (!Lock.available()) return '';
+  return `<section class="card pad"><h3>App lock</h3>
+    <p class="hint">${Lock.has() ? 'A PIN is asked for when the app opens on this device, and again after two minutes away.' : 'Ask for a PIN whenever the app opens on this device. Set it separately on each device.'} It stops someone who picks up an unlocked phone or computer; keep the device's own passcode on as well.</p>
+    <div class="addrow">${Lock.has() ? '<button class="btn" data-act="pin-set">Change PIN</button><button class="btn ghost" data-act="pin-off">Turn off</button>' : '<button class="btn primary" data-act="pin-set">Set a PIN</button>'}</div></section>`;
+}
+function pinModal(turnOff) {
+  const has = Lock.has();
+  modal(turnOff ? 'Turn off app lock' : has ? 'Change PIN' : 'Set a PIN', `
+    <div class="grid g2">${has ? fld('Current PIN', 'name', 'cur', '', { type: 'password', req: true }) : ''}${turnOff ? '' : fld('New PIN (4 to 8 digits)', 'name', 'pin', '', { type: 'password', req: true })}</div>
+    ${turnOff ? '' : '<p class="hint">Forgotten PINs cannot be recovered. If that happens, clear this site\'s data in the browser and sign in to Cloud sync again; your records come back from the cloud.</p>'}`,
+  (data) => {
+    (async () => {
+      if (has && !(await Lock.check(data.cur))) { toast('Current PIN is wrong'); return; }
+      if (turnOff) { Lock.clear(); toast('App lock turned off'); }
+      else {
+        if (!/^\d{4,8}$/.test(data.pin)) { toast('Use 4 to 8 digits'); return; }
+        await Lock.set(data.pin); toast('PIN set');
+      }
+      closeModal(); route();
+    })();
+    return false;
+  }, { submit: turnOff ? 'Turn off' : 'Save PIN' });
 }
 
 /* called by sync.js */
@@ -834,6 +915,15 @@ const ACT = {
   'cloud-in': (t) => cloudAuth('in', $('#cloud-email').value, $('#cloud-pass').value, t),
   'cloud-up': (t) => cloudAuth('up', $('#cloud-email').value, $('#cloud-pass').value, t),
   'sync-now': () => { Sync.run(); toast('Syncing…'); },
+  'new-pass': () => newPasswordModal(),
+  'cloud-forgot': async (t) => {
+    const email = ($('#cloud-email').value || '').trim();
+    if (!email) { toast('Type your email first, then press Forgot password'); return; }
+    try { await Sync.recover(email); toast('If that email has an account, a reset link is on its way'); }
+    catch (e) { toast(e instanceof TypeError ? 'No internet connection' : e.message); }
+  },
+  'pin-set': () => pinModal(false),
+  'pin-off': () => pinModal(true),
   'sign-out': () => {
     if (!confirm('Sign out on this device? Your records stay on this device and in the cloud.')) return;
     Sync.signOut(); route();
@@ -895,5 +985,14 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) naviga
 
 loadDb();
 syncStock();
+// arriving from a confirmation or password-reset email (must run before the first route)
+const arrival = Sync.adoptFromUrl();
 route();
-Sync.schedule(400);
+Lock.show();
+arrival.then((type) => {
+  if (!type) { Sync.schedule(400); return; }
+  route();
+  if (type === 'recovery') newPasswordModal();
+  else toast('Email confirmed — you are signed in');
+  Sync.run();
+});
