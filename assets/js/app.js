@@ -99,13 +99,14 @@ function renderSide() {
   const s = db.settings;
   const page = (location.hash.split('/')[1] || 'dashboard');
   const is = (...p) => (p.includes(page) ? 'on' : '');
+  document.documentElement.style.setProperty('--accent', s.accent);
+  document.documentElement.style.setProperty('--on-accent', onAccent(s.accent));
   const lastB = s.lastBackup ? `Backed up ${fmtDate(s.lastBackup)}` : 'Not backed up yet';
   $('#side').innerHTML = `
     <a class="brand" href="#/dashboard">
-      ${s.logo ? `<img src="${esc(s.logo)}" alt="">` : `<span class="brand-mono" style="background:${esc(s.accent)}">${esc(monogram(s.company.name))}</span>`}
+      ${s.logo ? `<img src="${esc(s.logo)}" alt="">` : `<span class="brand-mono">${esc(monogram(s.company.name))}</span>`}
       <span><b>${esc(s.company.name)}</b><i>Point of sale</i></span>
     </a>
-    <div class="hazard"></div>
     <div class="newbox">
       <button class="btn primary block" data-act="new" data-type="invoice">${icon('plus')} New invoice</button>
       <div class="newrow">
@@ -222,8 +223,8 @@ function viewDashboard() {
 
 /* ---------- documents list ---------- */
 function docTable(list) {
-  return `<table class="tbl"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>For</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
-    ${list.map((d) => `<tr data-act="open-doc" data-id="${d.id}"><td>${plate(d)}</td><td class="nowrap">${fmtDate(d.date)}</td><td><b>${esc(d.customer.name)}</b></td><td class="dim">${esc(docSummary(d))}</td><td class="r nowrap"><b>${d.type === 'refund' ? '−' : ''}${money(calcDoc(d).total)}</b></td><td>${pill(docStatus(d))}</td></tr>`).join('')}
+  return `<table class="tbl"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
+    ${list.map((d) => `<tr data-act="open-doc" data-id="${d.id}"><td>${plate(d)}</td><td class="nowrap">${fmtDate(d.date)}</td><td class="who"><b>${esc(d.customer.name)}</b><span>${esc(docSummary(d))}</span></td><td class="r nowrap"><b>${d.type === 'refund' ? '−' : ''}${money(calcDoc(d).total)}</b></td><td>${pill(docStatus(d))}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -347,7 +348,7 @@ function viewEditor() {
     <div class="actionbar">
       <div class="ab-total"><span>Total</span><b id="ed-total"></b></div>
       <a class="btn ghost-dark" href="${d.id ? '#/doc/' + d.id : '#/documents/all'}">Cancel</a>
-      <button class="btn dark" data-act="save-doc">Save</button>
+      <button class="btn" data-act="save-doc">Save</button>
       <button class="btn primary" data-act="save-doc" data-print="1">${icon('print')} Save &amp; print</button>
     </div>`;
   renderLines();
@@ -525,7 +526,7 @@ function paymentModal(id) {
 function viewSettings() {
   const s = db.settings;
   const f = (label, path, o) => fld(label, 'data-s', path, getPath(s, path), o);
-  const swatches = ['#f5c400', '#e4572e', '#c1121f', '#1f7a4d', '#1d4ed8', '#111318'];
+  const swatches = ['#0f4d3a', '#14294b', '#6b1d2a', '#8a6a3b', '#3b4a5a', '#151a18'];
   view.innerHTML = `
     <div class="page-head"><div><div class="eyebrow">Changes save as you type</div><h1>Settings</h1></div></div>
     <div class="editor">

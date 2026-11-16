@@ -105,7 +105,7 @@ function renderSheet(d) {
 
   const legal = [co.regNo && `Reg no ${esc(co.regNo)}`, co.taxNo && `${taxName} no ${esc(co.taxNo)}`].filter(Boolean).join('  ·  ');
 
-  return `<article class="sheet lh-${esc(s.letterhead)}" style="--accent:${esc(s.accent)}">
+  return `<article class="sheet lh-${esc(s.letterhead)}" style="--accent:${esc(s.accent)};--on-accent:${onAccent(s.accent)}">
     <header class="lh">
       <div class="lh-brand">${mark}<div><div class="lh-name">${esc(co.name)}</div>${co.tagline ? `<div class="lh-tag">${esc(co.tagline)}</div>` : ''}</div></div>
       <div class="lh-contact">${contact}</div>

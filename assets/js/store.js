@@ -17,7 +17,7 @@ function defaultData() {
       setupDone: false,
       company: { name: 'NN Trading', tagline: 'Vehicle sales & general trading', address: '', phone: '', email: '', website: '', regNo: '', taxNo: '' },
       logo: '',
-      accent: '#f5c400',
+      accent: '#0f4d3a',
       letterhead: 'slim',
       currency: '',
       tax: { name: 'VAT', rate: 0, inclusive: true },
@@ -110,6 +110,14 @@ function moneyShort(n) {
   const a = Math.abs(n);
   const s = a >= 1e6 ? (a / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'm' : a >= 1e4 ? (a / 1e3).toFixed(0) + 'k' : Math.round(a).toLocaleString('en-US');
   return (n < 0 ? '−' : '') + cur + s;
+}
+/* black or white text, whichever reads better on the given colour */
+function onAccent(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.62 ? '#151a18' : '#fff';
 }
 const vTitle = (v) => [v.year, v.make, v.model].filter(Boolean).join(' ') || 'Vehicle';
 const itemTitle = (it) => (it.kind === 'vehicle' ? vTitle(it.vehicle || {}) : it.desc || 'Item');
