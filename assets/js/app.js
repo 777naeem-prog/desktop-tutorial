@@ -118,7 +118,7 @@ function renderSide() {
     <nav>
       <a class="${is('dashboard')}" href="#/dashboard">${icon('home')} Dashboard</a>
       <a class="${is('documents', 'doc', 'new', 'edit')}" href="#/documents/all">${icon('doc')} Documents</a>
-      <a class="${is('stock')}" href="#/stock">${icon('car')} Vehicle stock</a>
+      <a class="${is('stock')}" href="#/stock">${icon('car')} Stock</a>
       <a class="${is('customers')}" href="#/customers">${icon('users')} Customers</a>
       <a class="${is('settings')}" href="#/settings">${icon('gear')} Settings</a>
     </nav>
@@ -150,7 +150,7 @@ function route() {
     if (!d) return go('#/documents/all');
     draft = structuredClone(d); viewEditor();
   }
-  else if (page === 'stock') viewStock();
+  else if (page === 'stock') { if (arg === 'items') viewItems(); else viewStock(); }
   else if (page === 'customers') viewCustomers();
   else if (page === 'settings') viewSettings();
   else viewDashboard();
@@ -190,6 +190,7 @@ function viewDashboard() {
     ...inv.filter((d) => docStatus(d).label === 'Overdue').map((d) => ({ d, why: `Overdue since ${fmtDate(d.dueDate)}`, amt: outstanding(d) })),
     ...openQ.filter((d) => d.dueDate && d.dueDate <= addDays(today(), 3)).map((d) => ({ d, why: `Quote expires ${fmtDate(d.dueDate)}`, amt: calcDoc(d).total })),
   ];
+  const low = db.products.filter((p) => num(p.low) > 0 && p.onHand <= num(p.low));
   const recent = [...db.docs].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 7);
   const hr = new Date().getHours();
   const hello = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -216,7 +217,9 @@ function viewDashboard() {
         </section>
         <section class="card">
           <div class="card-head"><h3>Needs attention</h3></div>
-          ${attention.length ? attention.map((a) => `<a class="attn" href="#/doc/${a.d.id}">${plate(a.d)}<span><b>${esc(a.d.customer.name)}</b><i>${esc(a.why)}</i></span><strong>${money(a.amt)}</strong></a>`).join('') : '<p class="quiet">All clear — nothing overdue or about to expire.</p>'}
+          ${attention.length || low.length ? attention.map((a) => `<a class="attn" href="#/doc/${a.d.id}">${plate(a.d)}<span><b>${esc(a.d.customer.name)}</b><i>${esc(a.why)}</i></span><strong>${money(a.amt)}</strong></a>`).join('')
+            + low.map((p) => `<a class="attn" href="#/stock/items"><span class="plate plate-quote">Stock</span><span><b>${esc(p.name)}</b><i>${p.onHand <= 0 ? 'Out of stock' : `Only ${p.onHand} left`}</i></span><strong>${p.onHand}</strong></a>`).join('')
+            : '<p class="quiet">All clear — nothing overdue, about to expire or running low.</p>'}
         </section>
       </div>
     </div>`;
@@ -316,7 +319,7 @@ function viewEditor() {
           <div id="lines"></div>
           <div class="addrow">
             <button class="btn" data-act="add-line" data-kind="vehicle">${icon('car')} Add vehicle</button>
-            ${db.vehicles.some((v) => v.status !== 'sold') && d.type !== 'refund' ? `<button class="btn" data-act="pick-stock">From stock</button>` : ''}
+            ${(db.vehicles.some((v) => v.status !== 'sold') || db.products.length) && d.type !== 'refund' ? `<button class="btn" data-act="pick-stock">From stock</button>` : ''}
             <button class="btn" data-act="add-line" data-kind="general">${icon('plus')} Add general item</button>
           </div>
         </section>
@@ -362,7 +365,7 @@ function renderLines() {
   const f = (label, path, o) => fld(label, 'data-f', path, getPath(draft, path), o);
   $('#lines').innerHTML = draft.items.map((it, i) => {
     const p = `items.${i}`;
-    const head = `<div class="line-top"><span class="line-tag">${String(i + 1).padStart(2, '0')} · ${it.kind === 'vehicle' ? 'Vehicle' : 'General item'}${it.vehicleId ? ' · from stock' : ''}</span><button class="icon-btn" title="Remove" data-act="del-line" data-i="${i}">${icon('x')}</button></div>`;
+    const head = `<div class="line-top"><span class="line-tag">${String(i + 1).padStart(2, '0')} · ${it.kind === 'vehicle' ? 'Vehicle' : 'General item'}${it.vehicleId || it.productId ? ' · from stock' : ''}</span><button class="icon-btn" title="Remove" data-act="del-line" data-i="${i}">${icon('x')}</button></div>`;
     if (it.kind === 'vehicle') {
       return `<div class="line">${head}
         <div class="grid g4">
@@ -403,6 +406,18 @@ function saveDraft(andPrint) {
   if (!d.items.length) { toast('Add at least one item'); return; }
   d.number = String(d.number || '').trim() || peekNumber(d.type);
   if (db.docs.some((x) => x.type === d.type && x.number === d.number && x.id !== d.id)) { toast(`${d.number} is already used — change the number`); return; }
+  if (d.type === 'invoice') {
+    const saved = db.docs.find((x) => x.id === d.id);
+    const short = [];
+    for (const pid of new Set(d.items.map((it) => it.productId).filter(Boolean))) {
+      const prod = db.products.find((x) => x.id === pid);
+      if (!prod) continue;
+      const available = prod.onHand + qtyOnDoc(saved, pid);
+      const need = qtyOnDoc(d, pid);
+      if (need > available) short.push(`${prod.name}: selling ${need}, only ${Math.max(0, available)} in stock`);
+    }
+    if (short.length && !confirm(`Not enough stock:\n\n${short.join('\n')}\n\nSave anyway? The stock count will go below zero until you receive more.`)) return;
+  }
   d.customerId = upsertCustomer(d.customer);
   if (!d.id) {
     d.id = uid();
@@ -434,8 +449,8 @@ function viewStock() {
     .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
   const count = (k) => db.vehicles.filter((v) => k === 'all' || (k === 'sold') === (v.status === 'sold')).length;
   view.innerHTML = `
-    <div class="page-head"><div><div class="eyebrow">Yard</div><h1>Vehicle stock</h1></div>
-      <button class="btn primary" data-act="veh-edit">${icon('plus')} Add vehicle</button></div>
+    <div class="page-head"><div><div class="eyebrow">Stock</div><h1>Vehicles</h1></div>
+      <div class="head-acts">${stockSwitch('vehicles')}<button class="btn primary" data-act="veh-edit">${icon('plus')} Add vehicle</button></div></div>
     <div class="tabs">${[['stock', 'In stock'], ['sold', 'Sold'], ['all', 'All']].map(([k, l]) => `<a href="#/stock" data-act="stock-filter" data-k="${k}" class="${k === stockFilter ? 'on' : ''}">${l}<i>${count(k)}</i></a>`).join('')}</div>
     ${list.length ? `<div class="veh-grid">${list.map((v) => {
       const sold = v.status === 'sold';
@@ -475,6 +490,86 @@ function vehicleModal(id) {
     if (!id) db.vehicles.push(rec);
     saveDb(); route();
   }, { wide: true });
+}
+
+function stockSwitch(on) {
+  return `<div class="seg"><a href="#/stock" class="${on === 'vehicles' ? 'on' : ''}">Vehicles</a><a href="#/stock/items" class="${on === 'items' ? 'on' : ''}">Parts &amp; items</a></div>`;
+}
+
+/* ---------- parts & items ---------- */
+let itemQuery = '';
+function viewItems() {
+  const all = db.products;
+  const value = all.reduce((a, p) => a + Math.max(0, p.onHand) * num(p.cost), 0);
+  const lowCount = all.filter((p) => num(p.low) > 0 && p.onHand <= num(p.low)).length;
+  view.innerHTML = `
+    <div class="page-head"><div><div class="eyebrow">Stock</div><h1>Parts &amp; items</h1></div>
+      <div class="head-acts">${stockSwitch('items')}<button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div></div>
+    ${all.length ? `<div class="item-bar"><input class="search" id="item-search" type="search" placeholder="Search name or code…" value="${esc(itemQuery)}">
+      <span class="dim">${all.length} item(s) · stock value at cost <b>${money(value)}</b>${lowCount ? ` · <span class="neg">${lowCount} running low</span>` : ''}</span></div>` : ''}
+    <section class="card" id="item-list"></section>`;
+  const draw = () => {
+    const q = itemQuery.trim().toLowerCase();
+    const list = all.filter((p) => !q || (p.name + ' ' + (p.code || '')).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+    $('#item-list').innerHTML = !all.length
+      ? `<div class="empty"><b>No parts or items yet.</b><p>Add the things you sell besides vehicles — tyres, batteries, tow bars, accessories, services. Then pick them onto an invoice and the count goes down by itself.</p><button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div>`
+      : !list.length ? '<div class="empty"><b>No matches.</b><p>Try a different search.</p></div>'
+      : `<table class="tbl tbl-items"><thead><tr><th>Item</th><th class="r">On hand</th><th class="r">Cost</th><th class="r">Price</th><th class="r">Value</th><th></th></tr></thead><tbody>
+        ${list.map((p) => {
+          const st = p.onHand <= 0 ? { key: 'bad', label: 'Out' } : num(p.low) > 0 && p.onHand <= num(p.low) ? { key: 'warn', label: 'Low' } : null;
+          return `<tr data-act="item-edit" data-id="${p.id}">
+            <td class="who"><b>${esc(p.name)}</b><span>${esc(p.code || '')}</span></td>
+            <td class="r nowrap"><b>${p.onHand}</b> ${st ? pill(st) : ''}</td>
+            <td class="r nowrap">${num(p.cost) ? money(num(p.cost)) : '—'}</td>
+            <td class="r nowrap">${money(num(p.price))}</td>
+            <td class="r nowrap dim">${num(p.cost) ? money(Math.max(0, p.onHand) * num(p.cost)) : '—'}</td>
+            <td class="r nowrap"><button class="btn sm" data-act="item-receive" data-id="${p.id}">Receive</button> <button class="btn sm primary" data-act="item-sell" data-id="${p.id}">Sell</button></td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+  };
+  draw();
+  const search = $('#item-search');
+  if (search) search.addEventListener('input', (e) => { itemQuery = e.target.value; draw(); });
+}
+
+function itemModal(id) {
+  const p = db.products.find((x) => x.id === id) || { name: '', code: '', cost: '', price: '', low: 2, notes: '', onHand: 0 };
+  const f = (l, k, o) => fld(l, 'name', k, p[k], o);
+  modal(id ? 'Edit item' : 'Add part or item', `
+    <div class="grid g4">
+      ${f('Name', 'name', { cls: 'span2', req: true, ph: 'e.g. Tow bar — Hilux' })}${f('Code / part no', 'code')}${fld(id ? 'On hand now' : 'Quantity in stock', 'name', 'onHand', p.onHand, { num: true, keepZero: true })}
+      ${f('Cost (what you pay)', 'cost', { num: true })}${f('Selling price', 'price', { num: true })}${f('Warn when down to', 'low', { num: true, keepZero: true })}<div></div>
+      ${f('Extra detail (optional, printed on the invoice)', 'notes', { cls: 'span4', ph: 'Size, brand, warranty…' })}
+    </div>
+    <p class="hint">Cost is private — it never appears on a quotation or invoice.${id ? ' Changing "On hand now" corrects the count, for example after a stock-take.' : ''}</p>
+    ${id ? `<button type="button" class="btn danger" data-act="item-del" data-id="${id}">Remove from list</button>` : ''}`,
+  (data) => {
+    if (!data.name.trim()) { toast('Give the item a name'); return false; }
+    const rec = db.products.find((x) => x.id === id) || { id: uid(), addedAt: Date.now(), qtyIn: 0, sold: 0 };
+    Object.assign(rec, { name: data.name.trim(), code: data.code.trim(), notes: data.notes, cost: num(data.cost), price: num(data.price), low: num(data.low) });
+    // received = what should be on hand + what has (net) gone out on invoices
+    rec.qtyIn = Math.round(num(data.onHand)) + num(rec.sold);
+    if (!id) db.products.push(rec);
+    saveDb(); route();
+  }, { wide: true });
+}
+
+function receiveModal(id) {
+  const p = db.products.find((x) => x.id === id);
+  modal(`Receive stock — ${p.name}`, `
+    <div class="grid g2">${fld('How many came in?', 'name', 'qty', '', { num: true, req: true })}${fld('New cost each (optional)', 'name', 'cost', '', { num: true, ph: money(num(p.cost)) })}</div>
+    <p class="hint">On hand now: <b>${p.onHand}</b></p>`,
+  (data) => {
+    const n = Math.round(num(data.qty));
+    if (n <= 0) { toast('Enter how many came in'); return false; }
+    p.qtyIn = num(p.qtyIn) + n;
+    if (num(data.cost) > 0) p.cost = num(data.cost);
+    saveDb(); toast(`${n} × ${p.name} added`); route();
+  }, { submit: 'Add to stock' });
+}
+
+function productLine(p) {
+  return { id: uid(), kind: 'general', productId: p.id, desc: p.name + (p.notes ? '\n' + p.notes : ''), qty: 1, price: num(p.price), discount: 0 };
 }
 
 function stockItem(v) {
@@ -666,29 +761,24 @@ function cloudCard() {
       <div class="addrow"><button class="btn primary" data-act="sync-now">Sync now</button><button class="btn" data-act="new-pass">Change password</button><button class="btn ghost" data-act="sign-out">Sign out on this device</button></div>`;
   }
   return `<h3>Cloud sync</h3>
-    <p class="hint">Use the same records on the office computer and the phone, with an automatic online copy. Create one account for the business, then sign in with it on each device.</p>
+    <p class="hint">Use the same records on the office computer and the phone, with an automatic online copy. Sign in with the email and password you were given, on each device.</p>
     <div class="grid g2">
       <label class="fld"><span>Email</span><input type="email" id="cloud-email" autocomplete="username"></label>
-      <label class="fld"><span>Password (8+ characters)</span><input type="password" id="cloud-pass" autocomplete="current-password"></label>
+      <label class="fld"><span>Password</span><input type="password" id="cloud-pass" autocomplete="current-password"></label>
     </div>
-    <div class="addrow cloud-acts"><button class="btn primary" data-act="cloud-in">Sign in</button><button class="btn" data-act="cloud-up">Create account</button><button class="btn ghost" data-act="cloud-forgot">Forgot password?</button></div>`;
+    <div class="addrow cloud-acts"><button class="btn primary" data-act="cloud-in">Sign in</button><button class="btn ghost" data-act="cloud-forgot">Forgot password?</button></div>`;
 }
 
-async function cloudAuth(mode, email, password, btn) {
+async function cloudAuth(email, password, btn) {
   email = (email || '').trim();
-  if (!email || (password || '').length < 8) { toast('Enter an email and a password of at least 8 characters'); return false; }
+  if (!email || !password) { toast('Enter your email and password'); return false; }
   const label = btn && btn.textContent;
   if (btn) { btn.disabled = true; btn.textContent = 'Please wait…'; }
   try {
-    if (mode === 'up') {
-      const r = await Sync.signUp(email, password);
-      if (r === 'confirm') { toast('Check your email and tap the confirmation link, then sign in'); return false; }
-      toast('Account created — sync is on');
-    } else {
-      await Sync.signIn(email, password);
-      toast('Signed in — records are syncing');
-    }
+    await Sync.signIn(email, password);
     closeModal(); route();
+    if (Sync.mustChange()) newPasswordModal(true);
+    else toast('Signed in — records are syncing');
     return true;
   } catch (e) {
     toast(e instanceof TypeError ? 'No internet connection' : e.message);
@@ -702,19 +792,27 @@ function signInModal() {
   modal('Sign in', `
     <p class="hint">Use the email and password of the business account. Your records will appear on this device.</p>
     <div class="grid g2">${fld('Email', 'name', 'email', '', { type: 'email', req: true })}${fld('Password', 'name', 'password', '', { type: 'password', req: true })}</div>`,
-  (data) => { cloudAuth('in', data.email, data.password, $('#modal-root .btn.primary')); return false; }, { submit: 'Sign in' });
+  (data) => { cloudAuth(data.email, data.password, $('#modal-root .btn.primary')); return false; }, { submit: 'Sign in' });
 }
 
-function newPasswordModal() {
-  modal('Choose a new password', `
-    <p class="hint">Use a long password that you do not use anywhere else.</p>
+/* first = a new account's first sign-in, which must choose its own password before carrying on */
+function newPasswordModal(first) {
+  modal(first ? 'Welcome — choose your own password' : 'Choose a new password', `
+    <p class="hint">${first ? 'You signed in with a temporary password. Choose your own now; the temporary one stops working.' : ''} Use a long password that you do not use anywhere else.</p>
     <div class="grid g2">${fld('New password (10+ characters)', 'name', 'p1', '', { type: 'password', req: true })}${fld('Type it again', 'name', 'p2', '', { type: 'password', req: true })}</div>`,
   (data) => {
     if (data.p1.length < 10) { toast('Use at least 10 characters'); return false; }
     if (data.p1 !== data.p2) { toast('The two passwords do not match'); return false; }
-    Sync.setPassword(data.p1).then(() => { closeModal(); toast('Password changed'); }).catch((e) => toast(e instanceof TypeError ? 'No internet connection' : e.message));
+    Sync.setPassword(data.p1).then(() => { closeModal(); toast('Password saved'); }).catch((e) => toast(e instanceof TypeError ? 'No internet connection' : e.message));
     return false;
   }, { submit: 'Save password' });
+  // the compulsory version has no way out except choosing a password
+  if (first) $$('#modal-root [data-act="close-modal"]').forEach((el) => { el.hidden = true; el.dataset.act = ''; });
+}
+
+function forgotModal() {
+  modal('Forgot your password?', `
+    <p class="hint">For security, passwords are reset by the person who set up this app. Ask them for a new temporary password, then sign in with it; you will be asked to choose your own straight away.</p>`, null);
 }
 
 /* ---------- app lock (PIN) ----------
@@ -842,7 +940,22 @@ const ACT = {
   'del-line': (t) => { draft.items.splice(+t.dataset.i, 1); dirty = true; renderLines(); refreshEditor(); },
   'pick-stock': () => {
     const avail = db.vehicles.filter((v) => v.status !== 'sold' && !draft.items.some((it) => it.vehicleId === v.id));
-    modal('Add from stock', avail.length ? avail.map((v) => `<button type="button" class="pickrow" data-act="choose-stock" data-id="${v.id}"><span><b>${esc(vTitle(v))}</b><i>${[v.colour, v.reg, v.vin].filter(Boolean).map(esc).join(' · ')}</i></span><strong>${money(num(v.price))}</strong></button>`).join('') : '<p class="quiet">Every vehicle in stock is already on this document.</p>', null);
+    const prods = [...db.products].sort((a, b) => a.name.localeCompare(b.name));
+    const vehHtml = avail.map((v) => `<button type="button" class="pickrow" data-act="choose-stock" data-id="${v.id}"><span><b>${esc(vTitle(v))}</b><i>${[v.colour, v.reg, v.vin].filter(Boolean).map(esc).join(' · ')}</i></span><strong>${money(num(v.price))}</strong></button>`).join('');
+    const prodHtml = prods.map((p) => `<button type="button" class="pickrow" data-act="choose-item" data-id="${p.id}"><span><b>${esc(p.name)}</b><i>${p.onHand > 0 ? `${p.onHand} in stock` : 'None in stock'}${p.code ? ' · ' + esc(p.code) : ''}</i></span><strong>${money(num(p.price))}</strong></button>`).join('');
+    modal('Add from stock', `
+      ${prods.length > 6 ? '<input class="search pick-search" id="pick-search" type="search" placeholder="Search…">' : ''}
+      ${vehHtml ? `<h4 class="pick-h">Vehicles</h4>${vehHtml}` : ''}
+      ${prodHtml ? `<h4 class="pick-h">Parts &amp; items</h4>${prodHtml}` : ''}
+      ${!vehHtml && !prodHtml ? '<p class="quiet">Nothing in stock to add.</p>' : ''}`, null);
+    const ps = $('#pick-search');
+    if (ps) ps.addEventListener('input', () => { const q = ps.value.toLowerCase(); $$('#modal-root .pickrow').forEach((b) => { b.hidden = !b.textContent.toLowerCase().includes(q); }); });
+  },
+  'choose-item': (t) => {
+    const p = db.products.find((x) => x.id === t.dataset.id);
+    const already = draft.items.find((it) => it.productId === p.id);
+    if (already) already.qty = num(already.qty) + 1; else draft.items.push(productLine(p));
+    dirty = true; closeModal(); renderLines(); refreshEditor();
   },
   'choose-stock': (t) => {
     draft.items.push(stockItem(db.vehicles.find((v) => v.id === t.dataset.id)));
@@ -890,6 +1003,19 @@ const ACT = {
     db.vehicles = db.vehicles.filter((v) => v.id !== t.dataset.id);
     saveDb(); route();
   },
+  'item-edit': (t) => itemModal(t.dataset.id),
+  'item-receive': (t) => receiveModal(t.dataset.id),
+  'item-sell': (t) => {
+    const d = newDoc('invoice');
+    d.items.push(productLine(db.products.find((x) => x.id === t.dataset.id)));
+    pendingDraft = d; go('#/new/invoice');
+  },
+  'item-del': (t) => {
+    const p = db.products.find((x) => x.id === t.dataset.id);
+    if (!confirm(`Remove ${p.name} from the list? Invoices that include it are kept.`)) return;
+    db.products = db.products.filter((x) => x.id !== p.id);
+    saveDb(); route();
+  },
   'veh-sell': (t) => {
     const d = newDoc(t.dataset.type);
     d.items.push(stockItem(db.vehicles.find((v) => v.id === t.dataset.id)));
@@ -912,16 +1038,10 @@ const ACT = {
   'logo-clear': () => { db.settings.logo = ''; saveDb(); route(); },
   export: () => exportBackup(),
   'signin-modal': (t, e) => { e.preventDefault(); signInModal(); },
-  'cloud-in': (t) => cloudAuth('in', $('#cloud-email').value, $('#cloud-pass').value, t),
-  'cloud-up': (t) => cloudAuth('up', $('#cloud-email').value, $('#cloud-pass').value, t),
+  'cloud-in': (t) => cloudAuth($('#cloud-email').value, $('#cloud-pass').value, t),
   'sync-now': () => { Sync.run(); toast('Syncing…'); },
   'new-pass': () => newPasswordModal(),
-  'cloud-forgot': async (t) => {
-    const email = ($('#cloud-email').value || '').trim();
-    if (!email) { toast('Type your email first, then press Forgot password'); return; }
-    try { await Sync.recover(email); toast('If that email has an account, a reset link is on its way'); }
-    catch (e) { toast(e instanceof TypeError ? 'No internet connection' : e.message); }
-  },
+  'cloud-forgot': () => forgotModal(),
   'pin-set': () => pinModal(false),
   'pin-off': () => pinModal(true),
   'sign-out': () => {
@@ -974,7 +1094,7 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Escape' && $('#modal-root [data-act="close-modal"]')) closeModal();
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && draft && /^#\/(new|edit)\//.test(location.hash)) { e.preventDefault(); saveDraft(false); }
 });
 window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
@@ -985,14 +1105,8 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) naviga
 
 loadDb();
 syncStock();
-// arriving from a confirmation or password-reset email (must run before the first route)
-const arrival = Sync.adoptFromUrl();
 route();
 Lock.show();
-arrival.then((type) => {
-  if (!type) { Sync.schedule(400); return; }
-  route();
-  if (type === 'recovery') newPasswordModal();
-  else toast('Email confirmed — you are signed in');
-  Sync.run();
-});
+Sync.schedule(400);
+// signed in with a temporary password but left before choosing a new one
+if (Sync.mustChange()) newPasswordModal(true);

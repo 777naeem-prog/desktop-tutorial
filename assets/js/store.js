@@ -40,6 +40,7 @@ function defaultData() {
     },
     customers: [],
     vehicles: [],
+    products: [],
     docs: [],
   };
 }
@@ -206,6 +207,25 @@ function syncStock() {
     v.soldDocId = v.status === 'sold' && lastInv ? lastInv.id : '';
     v.soldFor = v.status === 'sold' && lastInv ? lineTotal(lastInv.items.find((it) => it.vehicleId === v.id)) : 0;
   }
+  /* Parts & items: on hand = everything received − sold on invoices + returned on refunds.
+     Worked out from the documents, so editing or deleting an invoice corrects the count by itself. */
+  for (const p of db.products) {
+    let sold = 0, back = 0;
+    for (const d of db.docs) {
+      if (d.type !== 'invoice' && d.type !== 'refund') continue;
+      for (const it of d.items) {
+        if (it.productId !== p.id) continue;
+        if (d.type === 'invoice') sold += num(it.qty); else back += num(it.qty);
+      }
+    }
+    p.sold = sold - back;
+    p.onHand = num(p.qtyIn) - sold + back;
+  }
+}
+
+/* units of a product on a document (used to work out what is still available while editing it) */
+function qtyOnDoc(d, productId) {
+  return d ? d.items.filter((it) => it.productId === productId).reduce((a, it) => a + num(it.qty), 0) : 0;
 }
 
 function blankVehicle() {

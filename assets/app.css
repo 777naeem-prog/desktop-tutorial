@@ -403,3 +403,28 @@ body.locked #app { filter: blur(18px); pointer-events: none; user-select: none; 
 .lock-mono { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font: italic 400 27px/1 var(--serif); }
 .lock-msg { min-height: 20px; color: var(--bad) !important; }
 @media print { #lock { display: none; } }
+
+/* stock switch, parts & items */
+.head-acts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.seg a { padding: 7px 13px; font-weight: 500; font-size: 13.500px; border-radius: 8px; color: var(--muted); }
+.seg a.on { background: #fff; color: var(--text); box-shadow: var(--shadow); }
+.item-bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; font-size: 13.500px; }
+.item-bar b { font-weight: 600; color: var(--text); }
+.tbl-items td.who { width: 40%; }
+.tbl-items .pill { margin-left: 6px; }
+.pick-h { font-size: 12.500px; font-weight: 500; color: var(--muted); margin: 6px 0 8px; }
+.pick-h ~ .pick-h { margin-top: 16px; }
+.pick-search { width: 100%; margin-bottom: 10px; }
+@media (max-width: 820px) {
+  .head-acts { width: 100%; } .head-acts .btn { margin-left: auto; }
+  /* parts & items as stacked rows on phones: name | on hand, then price | buttons */
+  .card:has(> .tbl-items) { overflow-x: visible; }
+  .tbl.tbl-items { min-width: 0; }
+  .tbl-items thead { display: none; }
+  .tbl-items tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .tbl-items tbody tr:last-child { border-bottom: 0; }
+  .tbl-items td, .tbl-items td:first-child { padding: 0; border: 0; width: auto; }
+  .tbl-items td:nth-child(3), .tbl-items td:nth-child(5) { display: none; }
+  .tbl-items td:nth-child(4) { text-align: left; color: var(--muted); }
+  .tbl-items td:nth-child(4)::before { content: 'Price '; }
+}

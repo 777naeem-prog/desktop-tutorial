@@ -1,5 +1,5 @@
 /* Offline support: try the network first so updates arrive, fall back to the saved copy. */
-const CACHE = 'nn-pos-shell-v4';
+const CACHE = 'nn-pos-shell-v5';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'assets/app.css', 'assets/js/store.js', 'assets/js/sheet.js', 'assets/js/sync.js', 'assets/js/app.js',
   'assets/fonts/geist-latin-wght-normal.woff2', 'assets/fonts/instrument-serif-latin-400-normal.woff2', 'assets/fonts/instrument-serif-latin-400-italic.woff2',
   'assets/icons/icon-180.png', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png'];

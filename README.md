@@ -16,15 +16,19 @@ Double-click **`index.html`** — it opens in Chrome or Edge and works offline. 
 
 ## Cloud sync (office computer + phone)
 
-In **Settings → Cloud sync**, create one account for the business (email and password), then confirm it by tapping the link in the email you receive. Sign in with that same account on every device. From then on each invoice, quotation, refund, customer, vehicle and setting is copied to the cloud and to the other devices within about a minute. Without internet the app keeps working and catches up when the connection returns.
+Accounts are created by the administrator (public sign-up is switched off). Sign in under **Settings → Cloud sync** with the email and temporary password you were given; you are asked to choose your own password straight away. Sign in with the same account on every device. Each invoice, quotation, refund, customer, vehicle, part and setting is then copied to the cloud and to the other devices within about a minute. Without internet the app keeps working and catches up when the connection returns.
 
-On a new device, choose *Sign in to bring your records here* on the welcome screen.
+On a new device, choose *Sign in to bring your records here* on the welcome screen. A forgotten password is reset by the administrator, who issues a new temporary one.
+
+## Stock
+
+**Stock → Vehicles** holds individual vehicles. **Stock → Parts & items** holds everything else (tyres, batteries, accessories, services) with a quantity on hand. Press *Receive* when stock comes in and *Sell* (or *From stock* on an invoice) to sell it. Invoices take stock out, refunds put it back, quotations leave it alone. Set *Warn when down to* and the dashboard flags items running low.
 
 ## Security
 
-- Only invited email addresses can create an account; each account sees only its own records.
+- Public sign-up is off: only the administrator can create accounts, and each account sees only its own records.
 - **App lock** (Settings): ask for a PIN whenever the app opens on a device.
-- **Forgot password?** and **Change password** are in Settings → Cloud sync.
+- **Change password** is in Settings → Cloud sync; a forgotten password is reset by the administrator.
 - Use a long password that is not used anywhere else, and keep a passcode on the phone and computer.
 
 ## On an iPhone

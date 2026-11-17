@@ -37,7 +37,7 @@ const Sync = (() => {
     return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36) + '.' + s.length;
   }
 
-  const LISTS = { doc: 'docs', customer: 'customers', vehicle: 'vehicles' };
+  const LISTS = { doc: 'docs', customer: 'customers', vehicle: 'vehicles', product: 'products' };
   function localMap() {
     // settings are only shared once this device has been set up, so a blank device never overwrites real ones
     const m = db.settings.setupDone ? { 'settings:main': db.settings } : {};
@@ -76,7 +76,7 @@ const Sync = (() => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
       let msg = j.msg || j.error_description || j.message || 'Could not sign in';
-      if (/database error/i.test(msg)) msg = 'This email has not been invited. Ask the person who set up the app to add it.';
+      if (/invalid login/i.test(msg)) msg = 'Wrong email or password';
       const e = new Error(msg);
       e.auth = true;
       throw e;
@@ -87,6 +87,8 @@ const Sync = (() => {
     st.session = {
       access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000,
       email: (j.user && j.user.email) || (st.session && st.session.email) || '',
+      // set by the administrator on a new account: the first sign-in must choose a new password
+      mustChange: j.user ? !!(j.user.user_metadata && j.user.user_metadata.must_change_password) : !!(st.session && st.session.mustChange),
     };
     persist();
   }
@@ -183,39 +185,13 @@ const Sync = (() => {
     setSession(await authCall('token?grant_type=password', { email, password }));
     await run();
   }
-  /* returns 'in' when signed in straight away, 'confirm' when the email must be confirmed first */
-  async function signUp(email, password) {
-    const j = await authCall('signup' + backTo(), { email, password });
-    if (!j.access_token) return 'confirm';
-    setSession(j);
-    await run();
-    return 'in';
-  }
-  /* where the links in confirmation and reset emails should bring the person back to */
-  function backTo() {
-    return location.protocol.startsWith('http') ? '?redirect_to=' + encodeURIComponent(location.origin + location.pathname) : '';
-  }
-  async function recover(email) { await authCall('recover' + backTo(), { email }); }
   async function setPassword(password) {
     const t = await token();
-    const r = await fetch(SB_URL + '/auth/v1/user', { method: 'PUT', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+    const r = await fetch(SB_URL + '/auth/v1/user', { method: 'PUT', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ password, data: { must_change_password: false } }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.message || 'Could not change the password'); }
+    st.session.mustChange = false; persist();
   }
-  /* Arriving from an emailed link: the address carries a session. Returns 'recovery', 'signup', … or null. */
-  async function adoptFromUrl() {
-    const h = location.hash.slice(1);
-    if (!h.includes('access_token=')) return null;
-    const q = new URLSearchParams(h);
-    history.replaceState(null, '', location.pathname + location.search + '#/settings');
-    st.session = { access: q.get('access_token'), refresh: q.get('refresh_token'), exp: Date.now() + (parseInt(q.get('expires_in'), 10) || 3600) * 1000, email: '' };
-    try {
-      const r = await fetch(SB_URL + '/auth/v1/user', { headers: { apikey: SB_KEY, Authorization: 'Bearer ' + st.session.access } });
-      if (!r.ok) throw new Error('expired');
-      st.session.email = (await r.json()).email || '';
-    } catch (e) { st.session = null; persist(); return null; }
-    persist();
-    return q.get('type') || 'signin';
-  }
+  const mustChange = () => !!(st.session && st.session.mustChange);
 
   function signOut() {
     const s = st.session;
@@ -235,5 +211,5 @@ const Sync = (() => {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(200); });
   setInterval(() => { if (!document.hidden) schedule(0); }, 60000);
 
-  return { run, schedule, signIn, signUp, signOut, status, recover, setPassword, adoptFromUrl };
+  return { run, schedule, signIn, signOut, status, setPassword, mustChange };
 })();
