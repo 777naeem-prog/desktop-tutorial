@@ -22,7 +22,9 @@ On a new device, choose *Sign in to bring your records here* on the welcome scre
 
 ## Stock
 
-**Stock → Vehicles** holds individual vehicles. **Stock → Parts & items** holds everything else (tyres, batteries, accessories, services) with a quantity on hand. Press *Receive* when stock comes in and *Sell* (or *From stock* on an invoice) to sell it. Invoices take stock out, refunds put it back, quotations leave it alone. Set *Warn when down to* and the dashboard flags items running low.
+**Stock** holds everything you sell, vehicles and anything else, as items. Give each item a name, how many you have, the cost and the selling price, and add any details you like (VIN, mileage, colour, size, brand…); details print under the item on invoices and quotations. Press *Receive* when more comes in and *Sell* or *Quote* to start a document, or use *From stock* inside one. Invoices take stock out, refunds put it back, quotations leave it alone. Set *Warn when down to* and the dashboard flags items running low.
+
+Invoice lines work the same way: *Add item*, type a description, and add details as needed.
 
 ## Security
 

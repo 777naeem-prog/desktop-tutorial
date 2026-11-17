@@ -60,7 +60,9 @@ function renderSheet(d) {
       body = `<div class="it-title">${esc(vTitle(v))}</div>${specs ? `<div class="specs">${specs}</div>` : ''}${it.desc ? `<div class="it-note">${nl2br(it.desc)}</div>` : ''}`;
     } else {
       const [first, ...rest] = String(it.desc || '').split('\n');
-      body = `<div class="it-title">${esc(first || 'Item')}</div>${rest.length ? `<div class="it-note">${nl2br(rest.join('\n'))}</div>` : ''}`;
+      const specs = (it.details || []).filter((x) => x && String(x.value || '').trim())
+        .map((x) => `<span class="spec">${x.label ? `<i>${esc(x.label)}</i>` : ''}${esc(x.value)}</span>`).join('');
+      body = `<div class="it-title">${esc(first || 'Item')}</div>${specs ? `<div class="specs">${specs}</div>` : ''}${rest.length ? `<div class="it-note">${nl2br(rest.join('\n'))}</div>` : ''}`;
     }
     const qty = it.kind === 'vehicle' ? 1 : num(it.qty);
     return `<tr>

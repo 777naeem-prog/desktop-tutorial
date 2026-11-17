@@ -194,20 +194,24 @@ function claimNumber(type, used) {
 }
 
 /* ---------- stock ---------- */
-/* A stock vehicle is "sold" while it sits on more invoices than refunds. */
-function syncStock() {
+/* Older versions kept vehicles in their own list. Each one becomes a stock item with a
+   quantity of 1, keeping its id so invoices that sold it still count against it. */
+function migrateVehicles() {
+  if (!db.vehicles || !db.vehicles.length) return;
   for (const v of db.vehicles) {
-    let sold = 0, back = 0, lastInv = null;
-    for (const d of db.docs) {
-      if (!d.items.some((it) => it.vehicleId === v.id)) continue;
-      if (d.type === 'invoice') { sold++; lastInv = d; }
-      if (d.type === 'refund') back++;
-    }
-    v.status = sold > back ? 'sold' : 'stock';
-    v.soldDocId = v.status === 'sold' && lastInv ? lastInv.id : '';
-    v.soldFor = v.status === 'sold' && lastInv ? lineTotal(lastInv.items.find((it) => it.vehicleId === v.id)) : 0;
+    if (db.products.some((x) => x.id === v.id)) continue;
+    const km = v.mileage && `${Number(String(v.mileage).replace(/[^\d.]/g, '')).toLocaleString('en-US')} ${db.settings.distanceUnit || 'km'}`;
+    const details = [['VIN', v.vin], ['Registration', v.reg], ['Mileage', km], ['Colour', v.colour], ['Engine no', v.engineNo]]
+      .filter(([, val]) => val).map(([label, val]) => ({ label, value: String(val) }));
+    db.products.push({ id: v.id, addedAt: v.addedAt || Date.now(), name: vTitle(v), code: '', details, notes: v.notes || '', cost: num(v.cost), price: num(v.price), low: 0, qtyIn: 1 });
   }
-  /* Parts & items: on hand = everything received − sold on invoices + returned on refunds.
+  for (const d of db.docs) for (const it of d.items) if (it.vehicleId && !it.productId) it.productId = it.vehicleId;
+  db.vehicles = [];
+}
+
+function syncStock() {
+  migrateVehicles();
+  /* On hand = everything received − sold on invoices + returned on refunds.
      Worked out from the documents, so editing or deleting an invoice corrects the count by itself. */
   for (const p of db.products) {
     let sold = 0, back = 0;
@@ -215,7 +219,8 @@ function syncStock() {
       if (d.type !== 'invoice' && d.type !== 'refund') continue;
       for (const it of d.items) {
         if (it.productId !== p.id) continue;
-        if (d.type === 'invoice') sold += num(it.qty); else back += num(it.qty);
+        const q = it.kind === 'vehicle' ? 1 : num(it.qty);
+        if (d.type === 'invoice') sold += q; else back += q;
       }
     }
     p.sold = sold - back;
@@ -225,7 +230,7 @@ function syncStock() {
 
 /* units of a product on a document (used to work out what is still available while editing it) */
 function qtyOnDoc(d, productId) {
-  return d ? d.items.filter((it) => it.productId === productId).reduce((a, it) => a + num(it.qty), 0) : 0;
+  return d ? d.items.filter((it) => it.productId === productId).reduce((a, it) => a + (it.kind === 'vehicle' ? 1 : num(it.qty)), 0) : 0;
 }
 
 function blankVehicle() {

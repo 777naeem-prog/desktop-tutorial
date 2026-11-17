@@ -11,6 +11,7 @@ let dirty = false;
 let currentHash = '';
 let listQuery = '';
 let stockFilter = 'stock';
+const DETAIL_HINTS = ['VIN', 'Registration', 'Mileage', 'Colour', 'Engine no', 'Year', 'Make', 'Model', 'Serial no', 'Brand', 'Size', 'Warranty', 'Condition'];
 
 const getPath = (o, p) => p.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
 function setPath(o, p, v) {
@@ -150,7 +151,7 @@ function route() {
     if (!d) return go('#/documents/all');
     draft = structuredClone(d); viewEditor();
   }
-  else if (page === 'stock') { if (arg === 'items') viewItems(); else viewStock(); }
+  else if (page === 'stock') viewItems();
   else if (page === 'customers') viewCustomers();
   else if (page === 'settings') viewSettings();
   else viewDashboard();
@@ -169,12 +170,19 @@ function viewDashboard() {
   }, 0));
   const owed = inv.reduce((a, d) => a + outstanding(d), 0);
   const openQ = db.docs.filter((d) => d.type === 'quote' && docStatus(d).label === 'Open');
-  const inStock = db.vehicles.filter((v) => v.status !== 'sold');
+  const inStock = db.products.filter((x) => x.onHand > 0);
+  const units = inStock.reduce((a, x) => a + x.onHand, 0);
+  // profit on stock items sold this month: what they sold for, less what they cost (refunds reverse it)
   let margin = 0, marginUnits = 0;
-  for (const v of db.vehicles) {
-    if (v.status !== 'sold' || !num(v.cost)) continue;
-    const d = db.docs.find((x) => x.id === v.soldDocId);
-    if (d && d.date.startsWith(month)) { margin += v.soldFor - num(v.cost); marginUnits++; }
+  for (const d of db.docs) {
+    if ((d.type !== 'invoice' && d.type !== 'refund') || !d.date.startsWith(month)) continue;
+    for (const it of d.items) {
+      const prod = it.productId && db.products.find((x) => x.id === it.productId);
+      if (!prod || !num(prod.cost)) continue;
+      const q = it.kind === 'vehicle' ? 1 : num(it.qty);
+      const m = lineTotal(it) - q * num(prod.cost);
+      margin += d.type === 'invoice' ? m : -m; marginUnits++;
+    }
   }
 
   const months = [];
@@ -203,7 +211,7 @@ function viewDashboard() {
       <div class="stat stat-hero"><span>Sales this month</span><b>${money(months[5].val)}</b><i>${inv.filter((d) => d.date.startsWith(month)).length} invoice(s) · net of refunds</i></div>
       <div class="stat"><span>Owed to you</span><b>${money(owed)}</b><i>${inv.filter((d) => outstanding(d) > 0).length} unpaid invoice(s)</i></div>
       <div class="stat"><span>Open quotations</span><b>${money(openQ.reduce((a, d) => a + calcDoc(d).total, 0))}</b><i>${openQ.length} waiting on customers</i></div>
-      <div class="stat"><span>Vehicles in stock</span><b>${inStock.length}</b><i>${money(inStock.reduce((a, v) => a + num(v.price), 0))} asking${marginUnits ? ` · ${money(margin)} margin this month` : ''}</i></div>
+      <div class="stat"><span>Items in stock</span><b>${units}</b><i>${money(inStock.reduce((a, x) => a + x.onHand * num(x.price), 0))} at selling price${marginUnits ? ` · ${money(margin)} profit this month` : ''}</i></div>
     </div>
     <div class="dash-grid">
       <section class="card">
@@ -218,7 +226,7 @@ function viewDashboard() {
         <section class="card">
           <div class="card-head"><h3>Needs attention</h3></div>
           ${attention.length || low.length ? attention.map((a) => `<a class="attn" href="#/doc/${a.d.id}">${plate(a.d)}<span><b>${esc(a.d.customer.name)}</b><i>${esc(a.why)}</i></span><strong>${money(a.amt)}</strong></a>`).join('')
-            + low.map((p) => `<a class="attn" href="#/stock/items"><span class="plate plate-quote">Stock</span><span><b>${esc(p.name)}</b><i>${p.onHand <= 0 ? 'Out of stock' : `Only ${p.onHand} left`}</i></span><strong>${p.onHand}</strong></a>`).join('')
+            + low.map((p) => `<a class="attn" href="#/stock"><span class="plate plate-quote">Stock</span><span><b>${esc(p.name)}</b><i>${p.onHand <= 0 ? 'Out of stock' : `Only ${p.onHand} left`}</i></span><strong>${p.onHand}</strong></a>`).join('')
             : '<p class="quiet">All clear — nothing overdue, about to expire or running low.</p>'}
         </section>
       </div>
@@ -318,9 +326,8 @@ function viewEditor() {
           <h3>Items</h3>
           <div id="lines"></div>
           <div class="addrow">
-            <button class="btn" data-act="add-line" data-kind="vehicle">${icon('car')} Add vehicle</button>
-            ${(db.vehicles.some((v) => v.status !== 'sold') || db.products.length) && d.type !== 'refund' ? `<button class="btn" data-act="pick-stock">From stock</button>` : ''}
-            <button class="btn" data-act="add-line" data-kind="general">${icon('plus')} Add general item</button>
+            ${db.products.length && d.type !== 'refund' ? `<button class="btn" data-act="pick-stock">${icon('car')} From stock</button>` : ''}
+            <button class="btn" data-act="add-line">${icon('plus')} Add item</button>
           </div>
         </section>
 
@@ -365,7 +372,7 @@ function renderLines() {
   const f = (label, path, o) => fld(label, 'data-f', path, getPath(draft, path), o);
   $('#lines').innerHTML = draft.items.map((it, i) => {
     const p = `items.${i}`;
-    const head = `<div class="line-top"><span class="line-tag">${String(i + 1).padStart(2, '0')} · ${it.kind === 'vehicle' ? 'Vehicle' : 'General item'}${it.vehicleId || it.productId ? ' · from stock' : ''}</span><button class="icon-btn" title="Remove" data-act="del-line" data-i="${i}">${icon('x')}</button></div>`;
+    const head = `<div class="line-top"><span class="line-tag">${String(i + 1).padStart(2, '0')} · ${it.kind === 'vehicle' ? 'Vehicle' : 'Item'}${it.vehicleId || it.productId ? ' · from stock' : ''}</span><button class="icon-btn" title="Remove" data-act="del-line" data-i="${i}">${icon('x')}</button></div>`;
     if (it.kind === 'vehicle') {
       return `<div class="line">${head}
         <div class="grid g4">
@@ -382,15 +389,21 @@ function renderLines() {
           ${f('Extra detail (optional)', `${p}.desc`, { cls: 'span4', ph: 'Service history, extras, condition…' })}
         </div></div>`;
     }
+    const dets = (it.details || []).map((x, j) => `<div class="det-row">
+        <input data-f="${p}.details.${j}.label" value="${esc(x.label)}" placeholder="e.g. VIN" list="detail-hints" aria-label="Detail name">
+        <input data-f="${p}.details.${j}.value" value="${esc(x.value)}" placeholder="Value" aria-label="Detail value">
+        <button type="button" class="icon-btn" title="Remove detail" data-act="del-detail" data-i="${i}" data-j="${j}">${icon('x')}</button></div>`).join('');
     return `<div class="line">${head}
       <div class="grid g4">
-        ${f('Description', `${p}.desc`, { cls: 'span4', area: 1, ph: 'What is being sold or charged' })}
+        ${f('Description', `${p}.desc`, { cls: 'span4', area: 1, ph: 'What is being sold — e.g. 2014 BMW F20 116i Auto, or Tow bar' })}
+        <div class="fld span4"><span>Details (printed under the description)</span>${dets}<button type="button" class="btn sm ghost det-add" data-act="add-detail" data-i="${i}">${icon('plus')} Add detail</button></div>
         ${f('Qty', `${p}.qty`, { num: true, keepZero: true })}
         ${f('Unit price', `${p}.price`, { num: true, ph: '0.00' })}
         ${f('Discount', `${p}.discount`, { num: true, ph: '0.00' })}
         <div class="fld"><span>Amount</span><output data-line="${i}"></output></div>
       </div></div>`;
-  }).join('') || '<p class="quiet">No items yet. Add a vehicle or a general item below.</p>';
+  }).join('') || '<p class="quiet">No items yet. Add one below, or pick one from stock.</p>';
+  if (!$('#detail-hints')) document.body.insertAdjacentHTML('beforeend', `<datalist id="detail-hints">${DETAIL_HINTS.map((h) => `<option value="${h}">`).join('')}</datalist>`);
 }
 
 function refreshEditor() {
@@ -444,86 +457,39 @@ function copyItems(d) {
 }
 
 /* ---------- stock ---------- */
-function viewStock() {
-  const list = db.vehicles.filter((v) => stockFilter === 'all' || (stockFilter === 'sold') === (v.status === 'sold'))
-    .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
-  const count = (k) => db.vehicles.filter((v) => k === 'all' || (k === 'sold') === (v.status === 'sold')).length;
-  view.innerHTML = `
-    <div class="page-head"><div><div class="eyebrow">Stock</div><h1>Vehicles</h1></div>
-      <div class="head-acts">${stockSwitch('vehicles')}<button class="btn primary" data-act="veh-edit">${icon('plus')} Add vehicle</button></div></div>
-    <div class="tabs">${[['stock', 'In stock'], ['sold', 'Sold'], ['all', 'All']].map(([k, l]) => `<a href="#/stock" data-act="stock-filter" data-k="${k}" class="${k === stockFilter ? 'on' : ''}">${l}<i>${count(k)}</i></a>`).join('')}</div>
-    ${list.length ? `<div class="veh-grid">${list.map((v) => {
-      const sold = v.status === 'sold';
-      const m = sold && num(v.cost) ? v.soldFor - num(v.cost) : num(v.cost) && num(v.price) ? num(v.price) - num(v.cost) : null;
-      return `<article class="veh ${sold ? 'is-sold' : ''}">
-        <div class="veh-top"><div><h3>${esc(vTitle(v))}</h3><p>${[v.colour, v.mileage && `${Number(String(v.mileage).replace(/[^\d.]/g, '')).toLocaleString('en-US')} ${esc(db.settings.distanceUnit || 'km')}`].filter(Boolean).map(esc).join(' · ') || '&nbsp;'}</p></div>${pill(sold ? { key: 'ok', label: 'Sold' } : { key: 'open', label: 'In stock' })}</div>
-        <div class="veh-ids">${v.reg ? `<span class="plate">${esc(v.reg)}</span>` : ''}${v.vin ? `<span class="vin">VIN ${esc(v.vin)}</span>` : ''}</div>
-        <div class="veh-money">
-          <div><span>${sold ? 'Sold for' : 'Asking'}</span><b>${money(sold ? v.soldFor : num(v.price))}</b></div>
-          <div><span>Cost</span><b>${num(v.cost) ? money(num(v.cost)) : '—'}</b></div>
-          <div><span>${sold ? 'Margin' : 'Expected margin'}</span><b class="${m != null && m < 0 ? 'neg' : 'pos'}">${m == null ? '—' : money(m)}</b></div>
-        </div>
-        <div class="veh-acts">
-          ${sold ? `<a class="btn" href="#/doc/${v.soldDocId}">View invoice</a>` : `<button class="btn primary" data-act="veh-sell" data-type="invoice" data-id="${v.id}">Sell</button><button class="btn" data-act="veh-sell" data-type="quote" data-id="${v.id}">Quote</button>`}
-          <button class="btn ghost" data-act="veh-edit" data-id="${v.id}">Edit</button>
-        </div>
-      </article>`;
-    }).join('')}</div>` : `<section class="card"><div class="empty"><b>${stockFilter === 'sold' ? 'No sold vehicles yet.' : 'No vehicles in stock.'}</b><p>Add the vehicles on your floor once — then sell or quote them in two clicks, with every detail filled in for you.</p></div></section>`}`;
-}
-
-function vehicleModal(id) {
-  const v = db.vehicles.find((x) => x.id === id) || { ...blankVehicle(), cost: '', price: '', notes: '' };
-  const f = (l, k, o) => fld(l, 'name', k, v[k], o);
-  modal(id ? 'Edit vehicle' : 'Add vehicle to stock', `
-    <div class="grid g4">
-      ${f('Make', 'make', { req: true })}${f('Model', 'model', { cls: 'span2', req: true })}${f('Year', 'year')}
-      ${f('VIN / chassis no', 'vin', { cls: 'span2' })}${f('Registration', 'reg')}${f('Mileage', 'mileage')}
-      ${f('Colour', 'colour')}${f('Engine no', 'engineNo')}
-      ${f('Cost (what you paid)', 'cost', { num: true })}${f('Asking price', 'price', { num: true })}
-      ${f('Notes', 'notes', { cls: 'span4', ph: 'Service history, extras, condition… printed on the invoice' })}
-    </div>
-    <p class="hint">Cost is private — it never appears on a quotation or invoice.</p>
-    ${id && v.status !== 'sold' ? `<button type="button" class="btn danger" data-act="veh-del" data-id="${id}">Remove from stock</button>` : ''}`,
-  (data) => {
-    const rec = db.vehicles.find((x) => x.id === id) || { id: uid(), addedAt: Date.now(), status: 'stock' };
-    Object.assign(rec, data, { cost: num(data.cost), price: num(data.price) });
-    if (!id) db.vehicles.push(rec);
-    saveDb(); route();
-  }, { wide: true });
-}
-
-function stockSwitch(on) {
-  return `<div class="seg"><a href="#/stock" class="${on === 'vehicles' ? 'on' : ''}">Vehicles</a><a href="#/stock/items" class="${on === 'items' ? 'on' : ''}">Parts &amp; items</a></div>`;
-}
-
-/* ---------- parts & items ---------- */
 let itemQuery = '';
 function viewItems() {
   const all = db.products;
-  const value = all.reduce((a, p) => a + Math.max(0, p.onHand) * num(p.cost), 0);
-  const lowCount = all.filter((p) => num(p.low) > 0 && p.onHand <= num(p.low)).length;
+  const inStock = (x) => x.onHand > 0;
+  const value = all.reduce((a, x) => a + Math.max(0, x.onHand) * num(x.cost), 0);
+  const lowCount = all.filter((x) => num(x.low) > 0 && x.onHand <= num(x.low)).length;
+  const count = (k) => all.filter((x) => k === 'all' || (k === 'stock') === inStock(x)).length;
   view.innerHTML = `
-    <div class="page-head"><div><div class="eyebrow">Stock</div><h1>Parts &amp; items</h1></div>
-      <div class="head-acts">${stockSwitch('items')}<button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div></div>
-    ${all.length ? `<div class="item-bar"><input class="search" id="item-search" type="search" placeholder="Search name or code…" value="${esc(itemQuery)}">
-      <span class="dim">${all.length} item(s) · stock value at cost <b>${money(value)}</b>${lowCount ? ` · <span class="neg">${lowCount} running low</span>` : ''}</span></div>` : ''}
+    <div class="page-head"><div><div class="eyebrow">Everything you sell</div><h1>Stock</h1></div>
+      <button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div>
+    ${all.length ? `<div class="item-bar"><div class="tabs">${[['stock', 'In stock'], ['out', 'Sold / out'], ['all', 'All']].map(([k, l]) => `<a href="#/stock" data-act="stock-filter" data-k="${k}" class="${k === stockFilter ? 'on' : ''}">${l}<i>${count(k)}</i></a>`).join('')}</div>
+      <input class="search" id="item-search" type="search" placeholder="Search name, code or any detail…" value="${esc(itemQuery)}">
+      <span class="dim">Stock value at cost <b>${money(value)}</b>${lowCount ? ` · <span class="neg">${lowCount} running low</span>` : ''}</span></div>` : ''}
     <section class="card" id="item-list"></section>`;
   const draw = () => {
     const q = itemQuery.trim().toLowerCase();
-    const list = all.filter((p) => !q || (p.name + ' ' + (p.code || '')).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+    const list = all.filter((x) => (stockFilter === 'all' || (stockFilter === 'stock') === inStock(x))
+        && (!q || JSON.stringify([x.name, x.code, x.details, x.notes]).toLowerCase().includes(q)))
+      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
     $('#item-list').innerHTML = !all.length
-      ? `<div class="empty"><b>No parts or items yet.</b><p>Add the things you sell besides vehicles — tyres, batteries, tow bars, accessories, services. Then pick them onto an invoice and the count goes down by itself.</p><button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div>`
-      : !list.length ? '<div class="empty"><b>No matches.</b><p>Try a different search.</p></div>'
+      ? `<div class="empty"><b>Nothing in stock yet.</b><p>Add anything you sell — a vehicle, tyres, a tow bar, a service. Give it a name, a price and how many you have, plus any details you like (VIN, mileage, size…). Then pick it onto an invoice in one tap.</p><button class="btn primary" data-act="item-edit">${icon('plus')} Add item</button></div>`
+      : !list.length ? `<div class="empty"><b>${q ? 'No matches.' : stockFilter === 'stock' ? 'Nothing in stock.' : 'Nothing here.'}</b><p>${q ? 'Try a different search.' : 'Switch tabs to see the rest.'}</p></div>`
       : `<table class="tbl tbl-items"><thead><tr><th>Item</th><th class="r">On hand</th><th class="r">Cost</th><th class="r">Price</th><th class="r">Value</th><th></th></tr></thead><tbody>
-        ${list.map((p) => {
-          const st = p.onHand <= 0 ? { key: 'bad', label: 'Out' } : num(p.low) > 0 && p.onHand <= num(p.low) ? { key: 'warn', label: 'Low' } : null;
-          return `<tr data-act="item-edit" data-id="${p.id}">
-            <td class="who"><b>${esc(p.name)}</b><span>${esc(p.code || '')}</span></td>
-            <td class="r nowrap"><b>${p.onHand}</b> ${st ? pill(st) : ''}</td>
-            <td class="r nowrap">${num(p.cost) ? money(num(p.cost)) : '—'}</td>
-            <td class="r nowrap">${money(num(p.price))}</td>
-            <td class="r nowrap dim">${num(p.cost) ? money(Math.max(0, p.onHand) * num(p.cost)) : '—'}</td>
-            <td class="r nowrap"><button class="btn sm" data-act="item-receive" data-id="${p.id}">Receive</button> <button class="btn sm primary" data-act="item-sell" data-id="${p.id}">Sell</button></td>
+        ${list.map((x) => {
+          const st = x.onHand <= 0 ? { key: x.sold > 0 ? 'ok' : 'bad', label: x.sold > 0 && num(x.qtyIn) <= x.sold ? 'Sold' : 'Out' } : num(x.low) > 0 && x.onHand <= num(x.low) ? { key: 'warn', label: 'Low' } : null;
+          const sub = [x.code, ...(x.details || []).filter((d) => d.value).slice(0, 3).map((d) => d.value)].filter(Boolean).map(esc).join(' · ');
+          return `<tr data-act="item-edit" data-id="${x.id}">
+            <td class="who"><b>${esc(x.name)}</b><span>${sub}</span></td>
+            <td class="r nowrap"><b>${x.onHand}</b> ${st ? pill(st) : ''}</td>
+            <td class="r nowrap">${num(x.cost) ? money(num(x.cost)) : '—'}</td>
+            <td class="r nowrap">${money(num(x.price))}</td>
+            <td class="r nowrap dim">${num(x.cost) ? money(Math.max(0, x.onHand) * num(x.cost)) : '—'}</td>
+            <td class="r nowrap">${x.onHand > 0 ? `<button class="btn sm" data-act="item-receive" data-id="${x.id}">Receive</button> <button class="btn sm" data-act="item-sell" data-type="quote" data-id="${x.id}">Quote</button> <button class="btn sm primary" data-act="item-sell" data-type="invoice" data-id="${x.id}">Sell</button>` : `<button class="btn sm" data-act="item-receive" data-id="${x.id}">Restock</button>`}</td>
           </tr>`;
         }).join('')}</tbody></table>`;
   };
@@ -532,26 +498,35 @@ function viewItems() {
   if (search) search.addEventListener('input', (e) => { itemQuery = e.target.value; draw(); });
 }
 
+function detailRow(d = {}) {
+  return `<div class="det-row"><input data-dl value="${esc(d.label || '')}" placeholder="e.g. VIN" list="detail-hints" aria-label="Detail name"><input data-dv value="${esc(d.value || '')}" placeholder="Value" aria-label="Detail value"><button type="button" class="icon-btn" title="Remove detail" data-act="modal-del-detail">${icon('x')}</button></div>`;
+}
+
 function itemModal(id) {
-  const p = db.products.find((x) => x.id === id) || { name: '', code: '', cost: '', price: '', low: 2, notes: '', onHand: 0 };
-  const f = (l, k, o) => fld(l, 'name', k, p[k], o);
-  modal(id ? 'Edit item' : 'Add part or item', `
+  const x = db.products.find((y) => y.id === id) || { name: '', code: '', cost: '', price: '', low: '', notes: '', onHand: 1, details: [] };
+  const f = (l, k, o) => fld(l, 'name', k, x[k], o);
+  modal(id ? 'Edit item' : 'Add item', `
     <div class="grid g4">
-      ${f('Name', 'name', { cls: 'span2', req: true, ph: 'e.g. Tow bar — Hilux' })}${f('Code / part no', 'code')}${fld(id ? 'On hand now' : 'Quantity in stock', 'name', 'onHand', p.onHand, { num: true, keepZero: true })}
-      ${f('Cost (what you pay)', 'cost', { num: true })}${f('Selling price', 'price', { num: true })}${f('Warn when down to', 'low', { num: true, keepZero: true })}<div></div>
-      ${f('Extra detail (optional, printed on the invoice)', 'notes', { cls: 'span4', ph: 'Size, brand, warranty…' })}
+      ${f('Name', 'name', { cls: 'span4', req: true, ph: 'e.g. 2014 BMW F20 116i Auto, or Tow bar — Hilux' })}
+      <div class="fld span4"><span>Details — add whatever you need (printed on the invoice)</span><div id="det-list">${(x.details || []).map(detailRow).join('')}</div>
+        <button type="button" class="btn sm ghost det-add" data-act="modal-add-detail">${icon('plus')} Add detail</button></div>
+      ${fld(id ? 'On hand now' : 'How many do you have?', 'name', 'onHand', x.onHand, { num: true, keepZero: true })}
+      ${f('Cost each (private)', 'cost', { num: true })}${f('Selling price', 'price', { num: true })}${f('Warn when down to', 'low', { num: true, ph: 'Off' })}
+      ${f('Code / stock no (optional)', 'code')}${f('Extra note (optional, printed)', 'notes', { cls: 'span3', ph: 'Service history, condition, warranty…' })}
     </div>
     <p class="hint">Cost is private — it never appears on a quotation or invoice.${id ? ' Changing "On hand now" corrects the count, for example after a stock-take.' : ''}</p>
-    ${id ? `<button type="button" class="btn danger" data-act="item-del" data-id="${id}">Remove from list</button>` : ''}`,
+    ${id ? `<button type="button" class="btn danger" data-act="item-del" data-id="${id}">Remove from stock</button>` : ''}`,
   (data) => {
     if (!data.name.trim()) { toast('Give the item a name'); return false; }
-    const rec = db.products.find((x) => x.id === id) || { id: uid(), addedAt: Date.now(), qtyIn: 0, sold: 0 };
-    Object.assign(rec, { name: data.name.trim(), code: data.code.trim(), notes: data.notes, cost: num(data.cost), price: num(data.price), low: num(data.low) });
+    const details = $$('#det-list .det-row').map((r) => ({ label: $('[data-dl]', r).value.trim(), value: $('[data-dv]', r).value.trim() })).filter((d) => d.label || d.value);
+    const rec = db.products.find((y) => y.id === id) || { id: uid(), addedAt: Date.now(), qtyIn: 0, sold: 0 };
+    Object.assign(rec, { name: data.name.trim(), code: data.code.trim(), notes: data.notes, details, cost: num(data.cost), price: num(data.price), low: num(data.low) });
     // received = what should be on hand + what has (net) gone out on invoices
     rec.qtyIn = Math.round(num(data.onHand)) + num(rec.sold);
     if (!id) db.products.push(rec);
     saveDb(); route();
   }, { wide: true });
+  if (!$('#detail-hints')) document.body.insertAdjacentHTML('beforeend', `<datalist id="detail-hints">${DETAIL_HINTS.map((h) => `<option value="${h}">`).join('')}</datalist>`);
 }
 
 function receiveModal(id) {
@@ -569,12 +544,7 @@ function receiveModal(id) {
 }
 
 function productLine(p) {
-  return { id: uid(), kind: 'general', productId: p.id, desc: p.name + (p.notes ? '\n' + p.notes : ''), qty: 1, price: num(p.price), discount: 0 };
-}
-
-function stockItem(v) {
-  const { make, model, year, colour, vin, reg, mileage, engineNo } = v;
-  return { id: uid(), kind: 'vehicle', vehicleId: v.id, vehicle: { make, model, year, colour, vin, reg, mileage, engineNo }, desc: v.notes || '', qty: 1, price: num(v.price), discount: 0 };
+  return { id: uid(), kind: 'general', productId: p.id, desc: p.name + (p.notes ? '\n' + p.notes : ''), details: structuredClone(p.details || []), qty: 1, price: num(p.price), discount: 0 };
 }
 
 /* ---------- customers ---------- */
@@ -689,7 +659,7 @@ function viewSettings() {
           <p class="hint">Everything is stored on this computer, in this browser. Export a backup regularly and keep it somewhere safe (USB, Google Drive, email it to yourself).</p>
           <div class="addrow"><button class="btn primary" data-act="export">Export backup</button>
             <label class="btn">Restore backup or load setup file<input type="file" id="import-file" accept="application/json,.json" hidden></label></div>
-          <p class="hint">${s.lastBackup ? `Last backup: ${fmtDate(s.lastBackup)}` : 'No backup made yet.'} · ${db.docs.length} documents, ${db.customers.length} customers, ${db.vehicles.length} vehicles.</p>
+          <p class="hint">${s.lastBackup ? `Last backup: ${fmtDate(s.lastBackup)}` : 'No backup made yet.'} · ${db.docs.length} documents, ${db.customers.length} customers, ${db.products.length} stock items.</p>
         </section>
       </div>
       <div class="ed-prev"><div class="prev-label">Your letterhead</div><div class="sheet-fit" id="preview"></div></div>
@@ -930,35 +900,34 @@ const ACT = {
   print: (t) => printSheet(db.docs.find((x) => x.id === t.dataset.id)),
   'save-doc': (t) => saveDraft(!!t.dataset.print),
   'add-line': (t) => {
-    draft.items.push(t.dataset.kind === 'vehicle'
-      ? { id: uid(), kind: 'vehicle', vehicleId: '', vehicle: blankVehicle(), desc: '', qty: 1, price: 0, discount: 0 }
-      : { id: uid(), kind: 'general', desc: '', qty: 1, price: 0, discount: 0 });
+    draft.items.push({ id: uid(), kind: 'general', desc: '', details: [], qty: 1, price: 0, discount: 0 });
     dirty = true; renderLines(); refreshEditor();
     const inputs = $$('#lines .line:last-child input, #lines .line:last-child textarea');
     if (inputs[0]) inputs[0].focus();
   },
+  'add-detail': (t) => {
+    const it = draft.items[+t.dataset.i];
+    (it.details = it.details || []).push({ label: '', value: '' });
+    dirty = true; renderLines(); refreshEditor();
+    const rows = $$(`#lines .line:nth-child(${+t.dataset.i + 1}) .det-row input[list]`);
+    if (rows.length) rows[rows.length - 1].focus();
+  },
+  'del-detail': (t) => { draft.items[+t.dataset.i].details.splice(+t.dataset.j, 1); dirty = true; renderLines(); refreshEditor(); },
+  'modal-add-detail': () => { $('#det-list').insertAdjacentHTML('beforeend', detailRow()); const r = $$('#det-list [data-dl]'); r[r.length - 1].focus(); },
+  'modal-del-detail': (t) => { t.closest('.det-row').outerHTML = ''; },
   'del-line': (t) => { draft.items.splice(+t.dataset.i, 1); dirty = true; renderLines(); refreshEditor(); },
   'pick-stock': () => {
-    const avail = db.vehicles.filter((v) => v.status !== 'sold' && !draft.items.some((it) => it.vehicleId === v.id));
-    const prods = [...db.products].sort((a, b) => a.name.localeCompare(b.name));
-    const vehHtml = avail.map((v) => `<button type="button" class="pickrow" data-act="choose-stock" data-id="${v.id}"><span><b>${esc(vTitle(v))}</b><i>${[v.colour, v.reg, v.vin].filter(Boolean).map(esc).join(' · ')}</i></span><strong>${money(num(v.price))}</strong></button>`).join('');
-    const prodHtml = prods.map((p) => `<button type="button" class="pickrow" data-act="choose-item" data-id="${p.id}"><span><b>${esc(p.name)}</b><i>${p.onHand > 0 ? `${p.onHand} in stock` : 'None in stock'}${p.code ? ' · ' + esc(p.code) : ''}</i></span><strong>${money(num(p.price))}</strong></button>`).join('');
+    const prods = [...db.products].sort((a, b) => (b.onHand > 0) - (a.onHand > 0) || a.name.localeCompare(b.name));
     modal('Add from stock', `
       ${prods.length > 6 ? '<input class="search pick-search" id="pick-search" type="search" placeholder="Search…">' : ''}
-      ${vehHtml ? `<h4 class="pick-h">Vehicles</h4>${vehHtml}` : ''}
-      ${prodHtml ? `<h4 class="pick-h">Parts &amp; items</h4>${prodHtml}` : ''}
-      ${!vehHtml && !prodHtml ? '<p class="quiet">Nothing in stock to add.</p>' : ''}`, null);
+      ${prods.map((x) => `<button type="button" class="pickrow" data-act="choose-item" data-id="${x.id}"><span><b>${esc(x.name)}</b><i>${x.onHand > 0 ? `${x.onHand} in stock` : 'None in stock'}${[x.code, ...(x.details || []).filter((d) => d.value).slice(0, 2).map((d) => d.value)].filter(Boolean).map((v) => ' · ' + esc(v)).join('')}</i></span><strong>${money(num(x.price))}</strong></button>`).join('') || '<p class="quiet">Nothing in stock to add.</p>'}`, null);
     const ps = $('#pick-search');
-    if (ps) ps.addEventListener('input', () => { const q = ps.value.toLowerCase(); $$('#modal-root .pickrow').forEach((b) => { b.hidden = !b.textContent.toLowerCase().includes(q); }); });
+    if (ps) ps.addEventListener('input', () => { const q = ps.value.toLowerCase(); $$('#modal-root .pickrow').forEach((el) => { el.hidden = !el.textContent.toLowerCase().includes(q); }); });
   },
   'choose-item': (t) => {
     const p = db.products.find((x) => x.id === t.dataset.id);
     const already = draft.items.find((it) => it.productId === p.id);
     if (already) already.qty = num(already.qty) + 1; else draft.items.push(productLine(p));
-    dirty = true; closeModal(); renderLines(); refreshEditor();
-  },
-  'choose-stock': (t) => {
-    draft.items.push(stockItem(db.vehicles.find((v) => v.id === t.dataset.id)));
     dirty = true; closeModal(); renderLines(); refreshEditor();
   },
   pay: (t) => paymentModal(t.dataset.id),
@@ -996,30 +965,20 @@ const ACT = {
     db.docs = db.docs.filter((x) => x.id !== d.id);
     saveDb(); toast(`${d.number} deleted`); go('#/documents/' + d.type);
   },
-  'stock-filter': (t, e) => { e.preventDefault(); stockFilter = t.dataset.k; viewStock(); },
-  'veh-edit': (t) => vehicleModal(t.dataset.id),
-  'veh-del': (t) => {
-    if (!confirm('Remove this vehicle from stock?')) return;
-    db.vehicles = db.vehicles.filter((v) => v.id !== t.dataset.id);
-    saveDb(); route();
-  },
+  'stock-filter': (t, e) => { e.preventDefault(); stockFilter = t.dataset.k; viewItems(); },
   'item-edit': (t) => itemModal(t.dataset.id),
   'item-receive': (t) => receiveModal(t.dataset.id),
   'item-sell': (t) => {
-    const d = newDoc('invoice');
+    const type = t.dataset.type || 'invoice';
+    const d = newDoc(type);
     d.items.push(productLine(db.products.find((x) => x.id === t.dataset.id)));
-    pendingDraft = d; go('#/new/invoice');
+    pendingDraft = d; go('#/new/' + type);
   },
   'item-del': (t) => {
     const p = db.products.find((x) => x.id === t.dataset.id);
-    if (!confirm(`Remove ${p.name} from the list? Invoices that include it are kept.`)) return;
+    if (!confirm(`Remove ${p.name} from stock? Invoices that include it are kept.`)) return;
     db.products = db.products.filter((x) => x.id !== p.id);
     saveDb(); route();
-  },
-  'veh-sell': (t) => {
-    const d = newDoc(t.dataset.type);
-    d.items.push(stockItem(db.vehicles.find((v) => v.id === t.dataset.id)));
-    pendingDraft = d; go('#/new/' + t.dataset.type);
   },
   'cust-edit': (t) => customerModal(t.dataset.id),
   'cust-del': (t) => {
