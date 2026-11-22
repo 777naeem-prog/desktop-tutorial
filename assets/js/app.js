@@ -1060,6 +1060,23 @@ window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault()
 window.addEventListener('resize', fitSheets);
 window.addEventListener('hashchange', route);
 
+/* liquid glass: the light on a surface follows the pointer (mouse and trackpad only) */
+if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  let frame = 0, last = null;
+  document.addEventListener('pointermove', (e) => {
+    last = e;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const el = last.target.closest && last.target.closest('.card, .stat, .side, .modal');
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', `${last.clientX - r.left}px`);
+      el.style.setProperty('--my', `${last.clientY - r.top}px`);
+    });
+  }, { passive: true });
+}
+
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 loadDb();
