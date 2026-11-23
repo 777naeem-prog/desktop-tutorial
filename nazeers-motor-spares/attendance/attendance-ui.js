@@ -43,7 +43,25 @@
         <p class="na-hint">Signed in as <b>${esc(s.login || s.email)}</b>${s.role ? ` (${esc(s.role)})` : ''}. Every change is shared with the other phones.</p>
         <div class="na-actions"><button type="button" class="na-btn" data-a="cloud-sync">Sync now</button><button type="button" class="na-btn" data-a="cloud-pass">Change password</button><button type="button" class="na-btn ghost" data-a="cloud-out">Sign out</button></div></section>`;
     }
+    /* with requireSignIn, nothing but the sign-in screen shows until a member signs in */
+    const gated = () => !!(cloud && opts.requireSignIn && !cloud.status().signedIn);
+    let wasGated = gated();
+    function gateScreen() {
+      el.innerHTML = `<div class="na-gate"><form class="na-gate-box" data-form="login" autocomplete="on">
+        <div class="na-gate-mark">NMS</div>
+        <h1>${esc(data.settings.business || "Nazeer's Motor Spares")}</h1>
+        <p>Staff attendance &amp; pay — sign in to continue.</p>
+        <label class="na-fld"><span>Username</span><input id="na-email" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="e.g. nazeer" required></label>
+        <label class="na-fld"><span>Password</span><input id="na-pass" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="na-btn primary na-gate-go">Sign in</button>
+        <p class="na-gate-small">For the owner and manager only. Forgotten your password? Ask the administrator for a new temporary one.</p>
+      </form></div>`;
+      const f = el.querySelector('[data-form="login"]');
+      f.addEventListener('submit', (e) => { e.preventDefault(); ACT['cloud-in'](f.querySelector('.na-gate-go')); });
+      const u = f.querySelector('#na-email'); if (u && matchMedia('(hover: hover)').matches) u.focus();
+    }
     if (cloud && cloud.onStatus) cloud.onStatus(() => {
+      if (gated() !== wasGated) { wasGated = gated(); if (!el.querySelector('.na-modal.forced')) render(); return; }
       const b = el.querySelector('.na-brand i'); if (b) b.innerHTML = cloudLine();
       const line = el.querySelector('#na-cloud .na-sync');
       if (line) { const s = cloud.status(); line.innerHTML = `<span class="na-dot ${s.ok ? 'ok' : 'bad'}"></span>${esc(s.text)}`; }
@@ -111,6 +129,8 @@
     /* ---------- layout ---------- */
     const TABS = [['today', 'Daily register', 'Today'], ['month', 'Month sheet', 'Month'], ['pay', 'Pay', 'Pay'], ['staff', 'Staff', 'Staff'], ['settings', 'Settings', 'Settings']];
     function render() {
+      wasGated = gated();
+      if (wasGated) { closeModal(); gateScreen(); return; }
       el.innerHTML = `
         <header class="na-top">
           <div class="na-brand"><b>${esc(data.settings.business)}</b><i>${cloudLine()}</i></div>
@@ -124,7 +144,7 @@
     }
     /* first sign-in with a temporary password: choose your own before anything else */
     function forcePassword() {
-      if (!cloud || !cloud.status().mustChange || el.querySelector('.na-modal.forced')) return;
+      if (!cloud || gated() || !cloud.status().mustChange || el.querySelector('.na-modal.forced')) return;
       modal('Choose your own password', `<p>You signed in with a temporary password. Choose your own now — only you will know it.</p>
         <div class="na-form">${field('New password (at least 8 characters)', 'pw', '', { type: 'password', req: true })}${field('Type it again', 'pw2', '', { type: 'password', req: true })}</div>`, (f, form) => {
         if (f.pw.length < 8) { toast('Use at least 8 characters'); return false; }
@@ -539,11 +559,20 @@
       'cloud-in': async (t) => {
         const email = el.querySelector('#na-email').value, pw = el.querySelector('#na-pass').value;
         if (!email || !pw) { toast('Enter your username and password'); return; }
+        if (t.disabled) return;
         t.disabled = true; t.textContent = 'Signing in…';
         try { await cloud.signIn(email, pw); toast('Signed in — records are shared'); ui.tab = 'today'; data = C.normalise(storage.load()); render(); forcePassword(); }
         catch (e) { t.disabled = false; t.textContent = 'Sign in'; toast(e.message); }
       },
-      'cloud-out': () => {
+      'cloud-out': async () => {
+        if (opts.requireSignIn) {
+          await cloud.run();
+          const n = cloud.pending ? cloud.pending() : 0;
+          if (!confirm(n ? `${n} change(s) on this phone have not reached the cloud yet — probably no signal. If you sign out now they are lost. Sign out anyway?`
+            : 'Sign out on this phone? The shop\'s records are removed from this phone but stay safe in the cloud. Sign in again to get them back.')) return;
+          cloud.signOut(); cloud.clearLocal(); data = C.normalise(null); ui.tab = 'today'; render();
+          return;
+        }
         if (!confirm('Sign out on this phone? The records stay on this phone and in the cloud.')) return;
         cloud.signOut(); render();
       },

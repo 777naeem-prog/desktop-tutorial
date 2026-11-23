@@ -41,7 +41,7 @@ It is a web app, so it works the same on Android (Chrome on Nazeer's Honor) and 
 2. **Install it on each phone.** Open the address, then:
    - **Honor / Android (Chrome):** ⋮ menu → *Add to Home screen* (or *Install app*).
    - **iPhone (Safari):** Share button → *Add to Home Screen*. Do use the home-screen icon on the iPhone: Safari can clear a website's saved data after a week without a visit, but not an app added to the home screen.
-3. **Sign in.** Settings → *Share between phones* → each person signs in with **their own** username and password. Both phones then show the same register, month sheet and pay. Changes reach the other phone within about a minute (or press *Sync now*). Without signal the app keeps working and sends the changes later.
+3. **Sign in.** The app opens on a sign-in screen; nothing else is visible until **nazeer** or **manager** signs in, each with **their own** username and password. Signing out (Settings) removes the shop's records from that phone — they stay in the cloud — and warns first if any change has not reached the cloud yet. Both phones then show the same register, month sheet and pay. Changes reach the other phone within about a minute (or press *Sync now*). Without signal the app keeps working and sends the changes later.
 
 If both people mark the same person on the same day, the last change wins. Different people or different days never clash.
 

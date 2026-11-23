@@ -98,7 +98,7 @@
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         let msg = j.msg || j.error_description || j.message || 'Could not sign in';
-        if (/invalid login/i.test(msg)) msg = 'Wrong email or password';
+        if (/invalid login/i.test(msg)) msg = DOMAIN ? 'Wrong username or password' : 'Wrong email or password';
         const e = new Error(msg); e.auth = true; throw e;
       }
       return j;
@@ -248,6 +248,16 @@
 
     return {
       storage, run, schedule, signIn, signOut, setPassword, status,
+      /* changes on this phone the cloud has not received yet */
+      pending() {
+        const local = toMap(current ? C.normalise(current) : null);
+        let n = 0;
+        for (const k in local) if (st.shadow[k] !== fp(local[k])) n++;
+        for (const k in st.shadow) if (!(k in local) && st.shadow[k] !== 'x') n++;
+        return st.synced ? n : 0;
+      },
+      /* forget the shop's records on this phone (they stay in the cloud) */
+      clearLocal() { current = null; ver++; localStorage.removeItem(DATA_KEY); },
       onStatus: (fn) => listeners.push(fn),
       attach(a) { app = a; schedule(300); },
     };

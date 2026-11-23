@@ -6,7 +6,7 @@ const cloud = NMSSync.create({
   key: 'sb_publishable_78F4iY_ikXoGuPJlZOmQfA_GFiTL1nV',
   usernameDomain: 'nms-staff.invalid', // logins are short usernames; no e-mail is ever sent
 });
-window.attendanceApp = NMSAttendance.mount(document.getElementById('attendance'), { business: "Nazeer's Motor Spares", storage: cloud.storage, cloud });
+window.attendanceApp = NMSAttendance.mount(document.getElementById('attendance'), { business: "Nazeer's Motor Spares", storage: cloud.storage, cloud, requireSignIn: true });
 cloud.attach(window.attendanceApp);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
