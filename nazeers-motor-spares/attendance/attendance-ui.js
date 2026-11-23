@@ -34,13 +34,13 @@
     function cloudCard() {
       const s = cloud.status();
       if (!s.signedIn) return `<section class="na-card na-pad" id="na-cloud"><h3 class="na-h3">Share between phones</h3>
-        <p class="na-hint">Sign in with the email and password you were given. Use your own login on your own phone — Nazeer and the manager then see the same register and pay, and changes arrive on the other phone within about a minute. Without signal the app keeps working and catches up later.</p>
-        <div class="na-form g2"><label class="na-fld"><span>Email</span><input id="na-email" type="email" autocomplete="username" inputmode="email"></label>
+        <p class="na-hint">Sign in with the username and password you were given. Use your own login on your own phone — Nazeer and the manager then see the same register and pay, and changes arrive on the other phone within about a minute. Without signal the app keeps working and catches up later.</p>
+        <div class="na-form g2"><label class="na-fld"><span>Username</span><input id="na-email" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="e.g. nazeer"></label>
         <label class="na-fld"><span>Password</span><input id="na-pass" type="password" autocomplete="current-password"></label></div>
         <div class="na-actions" style="margin-top:12px"><button type="button" class="na-btn primary" data-a="cloud-in">Sign in</button></div></section>`;
       return `<section class="na-card na-pad" id="na-cloud"><h3 class="na-h3">Share between phones</h3>
         <p class="na-sync"><span class="na-dot ${s.ok ? 'ok' : 'bad'}"></span>${esc(s.text)}</p>
-        <p class="na-hint">Signed in as <b>${esc(s.email)}</b>${s.role ? ` (${esc(s.role)})` : ''}. Every change is shared with the other phones.</p>
+        <p class="na-hint">Signed in as <b>${esc(s.login || s.email)}</b>${s.role ? ` (${esc(s.role)})` : ''}. Every change is shared with the other phones.</p>
         <div class="na-actions"><button type="button" class="na-btn" data-a="cloud-sync">Sync now</button><button type="button" class="na-btn" data-a="cloud-pass">Change password</button><button type="button" class="na-btn ghost" data-a="cloud-out">Sign out</button></div></section>`;
     }
     if (cloud && cloud.onStatus) cloud.onStatus(() => {
@@ -121,6 +121,22 @@
       if (!data.employees.length && ui.tab !== 'settings' && ui.tab !== 'staff') ui.tab = 'staff';
       ({ today: viewToday, month: viewMonth, pay: viewPay, staff: viewStaff, settings: viewSettings })[ui.tab](main);
       el.querySelectorAll('.na-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.k === ui.tab));
+    }
+    /* first sign-in with a temporary password: choose your own before anything else */
+    function forcePassword() {
+      if (!cloud || !cloud.status().mustChange || el.querySelector('.na-modal.forced')) return;
+      modal('Choose your own password', `<p>You signed in with a temporary password. Choose your own now — only you will know it.</p>
+        <div class="na-form">${field('New password (at least 8 characters)', 'pw', '', { type: 'password', req: true })}${field('Type it again', 'pw2', '', { type: 'password', req: true })}</div>`, (f, form) => {
+        if (f.pw.length < 8) { toast('Use at least 8 characters'); return false; }
+        if (f.pw !== f.pw2) { toast('The two passwords are not the same'); return false; }
+        const btn = form.querySelector('footer .primary'); btn.disabled = true; btn.textContent = 'Saving…';
+        cloud.setPassword(f.pw).then(() => { closeModal(); toast('Password saved'); render(); }, (e) => { btn.disabled = false; btn.textContent = 'Save password'; toast(e.message); });
+        return false;
+      }, 'Save password');
+      const m = el.querySelector('.na-modal');
+      m.classList.add('forced');
+      m.querySelectorAll('[data-a="close"]').forEach((b) => b.remove());
+      m.querySelector('input[type=password]').setAttribute('autocomplete', 'new-password');
     }
 
     /* ---------- daily register ---------- */
@@ -522,9 +538,9 @@
       export: () => exportBackup(),
       'cloud-in': async (t) => {
         const email = el.querySelector('#na-email').value, pw = el.querySelector('#na-pass').value;
-        if (!email || !pw) { toast('Enter your email and password'); return; }
+        if (!email || !pw) { toast('Enter your username and password'); return; }
         t.disabled = true; t.textContent = 'Signing in…';
-        try { await cloud.signIn(email, pw); toast('Signed in — records are shared'); ui.tab = 'today'; data = C.normalise(storage.load()); render(); }
+        try { await cloud.signIn(email, pw); toast('Signed in — records are shared'); ui.tab = 'today'; data = C.normalise(storage.load()); render(); forcePassword(); }
         catch (e) { t.disabled = false; t.textContent = 'Sign in'; toast(e.message); }
       },
       'cloud-out': () => {
@@ -554,12 +570,13 @@
       if (fn) fn(t, e);
     };
     const onChange = (e) => { const t = e.target; if (t.dataset && CHANGE[t.dataset.aChange] && el.contains(t)) CHANGE[t.dataset.aChange](t); };
-    const onKey = (e) => { if (e.key === 'Escape') closeModal(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !el.querySelector('.na-modal.forced')) closeModal(); };
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
     el.addEventListener('keydown', onKey);
 
     render();
+    forcePassword();
 
     /* what the host system can use */
     return {

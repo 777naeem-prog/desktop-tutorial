@@ -4,6 +4,7 @@
 const cloud = NMSSync.create({
   url: 'https://oregkflpywtkdkqfrpbz.supabase.co',
   key: 'sb_publishable_78F4iY_ikXoGuPJlZOmQfA_GFiTL1nV',
+  usernameDomain: 'nms-staff.invalid', // logins are short usernames; no e-mail is ever sent
 });
 window.attendanceApp = NMSAttendance.mount(document.getElementById('attendance'), { business: "Nazeer's Motor Spares", storage: cloud.storage, cloud });
 cloud.attach(window.attendanceApp);

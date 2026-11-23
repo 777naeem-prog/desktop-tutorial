@@ -17,6 +17,10 @@
     const URL_ = opts.url.replace(/\/$/, ''), KEY = opts.key;
     const DATA_KEY = opts.storageKey || 'nms-attendance-v1';
     const STATE_KEY = opts.stateKey || 'nms-attendance-sync-v1';
+    // people can sign in with a short username: 'nazeer' means nazeer@<usernameDomain>
+    const DOMAIN = opts.usernameDomain || '';
+    const toEmail = (login) => { const l = String(login || '').trim().toLowerCase(); return l.includes('@') || !DOMAIN ? l : l + '@' + DOMAIN; };
+    const toLogin = (email) => (DOMAIN && email.endsWith('@' + DOMAIN) ? email.slice(0, -DOMAIN.length - 1) : email);
     const OVERLAP_MS = 120000; // re-read the last two minutes each time, so no change is missed
 
     const blank = () => ({ session: null, shadow: {}, lastPull: '', synced: false });
@@ -105,6 +109,8 @@
         access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000,
         email: (j.user && j.user.email) || old.email || '', uid: (j.user && j.user.id) || old.uid || '',
         role: old.role || '', name: old.name || '',
+        // a new account carries a temporary password that must be replaced at the first sign-in
+        mustChange: j.user ? !!(j.user.user_metadata && j.user.user_metadata.must_change_password) : !!old.mustChange,
       };
       persist();
     }
@@ -129,7 +135,7 @@
 
     /* ---------- sync: pull what changed in the cloud, then push what changed here ---------- */
     async function run() {
-      if (!st.session) return;
+      if (!st.session || st.session.mustChange) return;
       if (busy) { again = true; return; }
       // never swap the data under someone who is typing or has a form open; try again shortly
       if (app && app.isBusy && app.isBusy()) { schedule(4000); return; }
@@ -204,9 +210,13 @@
     }
 
     /* ---------- account ---------- */
-    async function signIn(email, password) {
-      const j = await authCall('token?grant_type=password', { email: email.trim(), password });
-      st = blank(); setSession(j); emit();
+    async function signIn(login, password) {
+      const j = await authCall('token?grant_type=password', { email: toEmail(login), password });
+      st = blank(); setSession(j);
+      const me = await rest('GET', 'nms_members?select=role,name&user_id=eq.' + encodeURIComponent(st.session.uid)).catch(() => null);
+      if (me && !me.length) { signOut(); throw new Error('This account has not been given access yet — ask the administrator'); }
+      if (me) { st.session.role = me[0].role; st.session.name = me[0].name; persist(); }
+      emit();
       await run();
       if (state === 'error' && /not been given access/.test(lastError)) { const m = lastError; signOut(); throw new Error(m); }
     }
@@ -216,13 +226,14 @@
       st = blank(); persist(); setState('idle');
     }
     async function setPassword(password) {
-      const r = await fetch(URL_ + '/auth/v1/user', { method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.message || 'Could not change the password'); }
+      const r = await fetch(URL_ + '/auth/v1/user', { method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify({ password, data: { must_change_password: false } }) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(/same|different/i.test(j.msg || j.message || '') ? 'Choose a password different from the temporary one' : j.msg || j.message || 'Could not change the password'); }
+      st.session.mustChange = false; persist(); emit(); schedule(100);
     }
     function status() {
       const s = st.session;
       if (!s) return { signedIn: false, ok: false, text: 'Not signed in — records are on this phone only' };
-      const who = { signedIn: true, email: s.email, role: s.role, name: s.name };
+      const who = { signedIn: true, email: s.email, login: toLogin(s.email), role: s.role, name: s.name, mustChange: !!s.mustChange };
       if (state === 'syncing') return { ...who, ok: true, text: 'Syncing…' };
       if (state === 'error') return { ...who, ok: false, text: lastError };
       const mins = Math.round((Date.now() - lastOk) / 60000);

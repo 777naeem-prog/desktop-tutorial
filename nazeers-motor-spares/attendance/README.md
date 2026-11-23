@@ -41,26 +41,31 @@ It is a web app, so it works the same on Android (Chrome on Nazeer's Honor) and 
 2. **Install it on each phone.** Open the address, then:
    - **Honor / Android (Chrome):** ⋮ menu → *Add to Home screen* (or *Install app*).
    - **iPhone (Safari):** Share button → *Add to Home Screen*. Do use the home-screen icon on the iPhone: Safari can clear a website's saved data after a week without a visit, but not an app added to the home screen.
-3. **Sign in.** Settings → *Share between phones* → each person signs in with **their own** email and password. Both phones then show the same register, month sheet and pay. Changes reach the other phone within about a minute (or press *Sync now*). Without signal the app keeps working and sends the changes later.
+3. **Sign in.** Settings → *Share between phones* → each person signs in with **their own** username and password. Both phones then show the same register, month sheet and pay. Changes reach the other phone within about a minute (or press *Sync now*). Without signal the app keeps working and sends the changes later.
 
 If both people mark the same person on the same day, the last change wins. Different people or different days never clash.
 
-### Creating the two logins (administrator, one-off)
+### Logins
 
-Records are shared through the Supabase project **nazeers-parts-board**. Only accounts listed as members can see or change anything.
+Records are shared through Nazeer's own Supabase project (**nazeers-parts-board**). Only accounts listed as members can see or change anything.
 
-1. Supabase dashboard → *Authentication* → *Users* → *Add user* → *Create new user*: enter the email and a temporary password, tick *Auto Confirm User*. Do this for Nazeer and for the manager.
-2. Supabase dashboard → *SQL Editor*, run (with the real emails):
-   ```sql
-   insert into public.nms_members (user_id, role, name)
-   select id, 'owner', 'Nazeer' from auth.users where email = 'nazeer@example.com';
-   insert into public.nms_members (user_id, role, name)
-   select id, 'manager', 'Manager' from auth.users where email = 'manager@example.com';
-   ```
-3. Give each person their email and temporary password; they can change it under Settings → *Change password*.
-4. Recommended: *Authentication* → *Sign In / Providers* → *Email* → turn off *Allow new users to sign up*. (A stranger who signs up still sees nothing, but this keeps the user list clean.)
+Two logins exist: **nazeer** (owner) and **manager**. They sign in with the username alone; no e-mail address is needed or ever used (behind the scenes they are `nazeer@nms-staff.invalid` and `manager@nms-staff.invalid`). Each was given a temporary password, and the app makes them choose their own the first time they sign in.
 
-To remove someone: delete their user in *Authentication* → *Users*; they lose access straight away.
+To add another person, run in the Supabase *SQL Editor* (change the username, temporary password, role and name):
+
+```sql
+do $$ declare uid uuid := gen_random_uuid(); begin
+  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change, email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+  values ('00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated', 'cashier@nms-staff.invalid', extensions.crypt('temporary-pass-123', extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}', '{"must_change_password": true}', now(), now(), '', '', '', '', '', '', '', '');
+  insert into auth.identities (id, user_id, provider_id, identity_data, provider, created_at, updated_at)
+  values (gen_random_uuid(), uid, uid::text, jsonb_build_object('sub', uid::text, 'email', 'cashier@nms-staff.invalid', 'email_verified', true), 'email', now(), now());
+  insert into public.nms_members (user_id, role, name) values (uid, 'manager', 'Cashier');
+end $$;
+```
+
+A forgotten password: set a new temporary one the same way (`update auth.users set encrypted_password = extensions.crypt('new-temp-pass', extensions.gen_salt('bf')), raw_user_meta_data = raw_user_meta_data || '{"must_change_password": true}' where email = 'manager@nms-staff.invalid';`). To remove someone: *Authentication* → *Users* → delete; they lose access straight away.
 
 The database setup is in `supabase/001_nms_attendance_sync.sql` (already applied).
 
