@@ -25,6 +25,29 @@
     const ui = { tab: opts.startTab || 'today', day: C.localToday(), month: C.localToday().slice(0, 7), payOffset: 0 };
 
     el.classList.add('nms-att');
+    const cloud = opts.cloud || null;
+    function cloudLine() {
+      if (!cloud) return 'Staff attendance &amp; pay';
+      const s = cloud.status();
+      return `<span class="na-dot ${s.signedIn && s.ok ? 'ok' : s.signedIn ? 'bad' : ''}"></span>${esc(s.signedIn ? s.text : 'This phone only')}`;
+    }
+    function cloudCard() {
+      const s = cloud.status();
+      if (!s.signedIn) return `<section class="na-card na-pad" id="na-cloud"><h3 class="na-h3">Share between phones</h3>
+        <p class="na-hint">Sign in with the email and password you were given. Use your own login on your own phone — Nazeer and the manager then see the same register and pay, and changes arrive on the other phone within about a minute. Without signal the app keeps working and catches up later.</p>
+        <div class="na-form g2"><label class="na-fld"><span>Email</span><input id="na-email" type="email" autocomplete="username" inputmode="email"></label>
+        <label class="na-fld"><span>Password</span><input id="na-pass" type="password" autocomplete="current-password"></label></div>
+        <div class="na-actions" style="margin-top:12px"><button type="button" class="na-btn primary" data-a="cloud-in">Sign in</button></div></section>`;
+      return `<section class="na-card na-pad" id="na-cloud"><h3 class="na-h3">Share between phones</h3>
+        <p class="na-sync"><span class="na-dot ${s.ok ? 'ok' : 'bad'}"></span>${esc(s.text)}</p>
+        <p class="na-hint">Signed in as <b>${esc(s.email)}</b>${s.role ? ` (${esc(s.role)})` : ''}. Every change is shared with the other phones.</p>
+        <div class="na-actions"><button type="button" class="na-btn" data-a="cloud-sync">Sync now</button><button type="button" class="na-btn" data-a="cloud-pass">Change password</button><button type="button" class="na-btn ghost" data-a="cloud-out">Sign out</button></div></section>`;
+    }
+    if (cloud && cloud.onStatus) cloud.onStatus(() => {
+      const b = el.querySelector('.na-brand i'); if (b) b.innerHTML = cloudLine();
+      const line = el.querySelector('#na-cloud .na-sync');
+      if (line) { const s = cloud.status(); line.innerHTML = `<span class="na-dot ${s.ok ? 'ok' : 'bad'}"></span>${esc(s.text)}`; }
+    });
 
     /* ---------- saving ---------- */
     function save() {
@@ -86,12 +109,12 @@
     }
 
     /* ---------- layout ---------- */
-    const TABS = [['today', 'Daily register'], ['month', 'Month sheet'], ['pay', 'Pay'], ['staff', 'Staff'], ['settings', 'Settings']];
+    const TABS = [['today', 'Daily register', 'Today'], ['month', 'Month sheet', 'Month'], ['pay', 'Pay', 'Pay'], ['staff', 'Staff', 'Staff'], ['settings', 'Settings', 'Settings']];
     function render() {
       el.innerHTML = `
         <header class="na-top">
-          <div class="na-brand"><b>${esc(data.settings.business)}</b><i>Staff attendance &amp; pay</i></div>
-          <nav class="na-tabs">${TABS.map(([k, l]) => `<button type="button" data-a="tab" data-k="${k}" class="${ui.tab === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
+          <div class="na-brand"><b>${esc(data.settings.business)}</b><i>${cloudLine()}</i></div>
+          <nav class="na-tabs">${TABS.map(([k, l, sh]) => `<button type="button" data-a="tab" data-k="${k}" class="${ui.tab === k ? 'on' : ''}"><span class="na-long">${l}</span><span class="na-short">${sh}</span></button>`).join('')}</nav>
         </header>
         <main class="na-main"></main>`;
       const main = el.querySelector('.na-main');
@@ -120,6 +143,7 @@
             <button type="button" class="na-btn wa" data-a="share-day">Send on WhatsApp</button>
           </div>
         </div>
+        ${cloud && !cloud.status().signedIn ? '<div class="na-warn">Not signed in — these records are only on this phone. <a href="#" data-a="tab" data-k="settings">Sign in</a> so Nazeer and the manager see the same register.</div>' : ''}
         <h1 class="na-h1">${fmtDate(d, true)}</h1>
         ${closed ? `<div class="na-card na-pad na-closed"><b>Shop closed — ${esc(closed)}</b><p>Nobody is expected today. Salaries are not reduced; daily-rate staff are not paid for the day. Anyone who still came in can be marked below and is paid an extra day.</p></div>` : ''}
         ${!closed ? `<div class="na-tally">${STATUS_ORDER.filter((k) => sum.counts[k]).map((k) => `<span class="na-s s-${k}">${STATUS[k].label} <b>${sum.counts[k]}</b></span>`).join('')}${sum.missing ? `<span class="na-s s-none">Not marked <b>${sum.missing}</b></span>` : staff.length ? '<span class="na-s s-done">Everyone marked</span>' : ''}</div>` : ''}
@@ -388,6 +412,7 @@
       const s = data.settings;
       main.innerHTML = `
         <h1 class="na-h1">Settings</h1>
+        ${cloud ? cloudCard() : ''}
         <section class="na-card na-pad"><h3 class="na-h3">Business</h3>
           <form class="na-form g2" data-form="settings">
             ${field('Business name', 'business', s.business, { req: true })}
@@ -495,6 +520,22 @@
       },
       'del-closed': (t) => { delete data.closed[t.dataset.d]; save(); render(); },
       export: () => exportBackup(),
+      'cloud-in': async (t) => {
+        const email = el.querySelector('#na-email').value, pw = el.querySelector('#na-pass').value;
+        if (!email || !pw) { toast('Enter your email and password'); return; }
+        t.disabled = true; t.textContent = 'Signing in…';
+        try { await cloud.signIn(email, pw); toast('Signed in — records are shared'); ui.tab = 'today'; data = C.normalise(storage.load()); render(); }
+        catch (e) { t.disabled = false; t.textContent = 'Sign in'; toast(e.message); }
+      },
+      'cloud-out': () => {
+        if (!confirm('Sign out on this phone? The records stay on this phone and in the cloud.')) return;
+        cloud.signOut(); render();
+      },
+      'cloud-sync': () => { cloud.run(); toast('Syncing…'); },
+      'cloud-pass': () => modal('Change password', `${field('New password (at least 8 characters)', 'pw', '', { type: 'password', req: true })}`, (f) => {
+        if (f.pw.length < 8) { toast('Use at least 8 characters'); return false; }
+        cloud.setPassword(f.pw).then(() => toast('Password changed'), (e) => toast(e.message));
+      }, 'Change password'),
     };
     const CHANGE = {
       'day-pick': (t) => { if (t.value) { ui.day = t.value; render(); } },
@@ -509,6 +550,7 @@
       if (t.tagName === 'TR' && e.target.closest('button,a')) return;
       if (t.classList.contains('na-modal-back') && e.target !== t) return;
       const fn = ACT[t.dataset.a];
+      if (t.tagName === 'A') e.preventDefault();
       if (fn) fn(t, e);
     };
     const onChange = (e) => { const t = e.target; if (t.dataset && CHANGE[t.dataset.aChange] && el.contains(t)) CHANGE[t.dataset.aChange](t); };
@@ -524,6 +566,7 @@
       getData: () => data,
       setData: (d) => { data = C.normalise(d); save(); render(); },
       reload: () => { data = C.normalise(storage.load()); render(); },
+      isBusy: () => !!el.querySelector('.na-modal-back') || (el.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)),
       show: (tab) => { ui.tab = tab; render(); },
       payFor: (empId, iso) => { const e = empById(empId); return e ? C.calcPeriod(data, e, C.periodFor(e, iso || C.localToday())) : null; },
       destroy: () => { el.removeEventListener('click', onClick); el.removeEventListener('change', onChange); el.removeEventListener('keydown', onKey); el.innerHTML = ''; el.classList.remove('nms-att'); },

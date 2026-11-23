@@ -4,7 +4,7 @@ This app replaces keeping attendance in a WhatsApp chat. Each morning the owner 
 
 ## Using it
 
-Open **`index.html`** in Chrome, Edge or Safari. It works offline and needs no install or account.
+Open **`index.html`** in Chrome, Edge or Safari. It works offline. To use it on phones and share records between Nazeer and the manager, see *On the phones* below.
 
 1. **Staff**: add each employee with their name, role, pay and how pay is worked out:
    - **Fixed salary**: a set amount per pay period. Absent days and half days are deducted at *salary ÷ working days in the period*.
@@ -33,13 +33,40 @@ Open **`index.html`** in Chrome, Edge or Safari. It works offline and needs no i
 
 If someone works on a day off or on a day the shop was closed, they are paid an extra day.
 
-### Backups — important
+## On the phones (Honor and iPhone)
 
-Everything is saved in the browser on the device you use. Download a backup regularly under **Settings → Download backup** and keep the file somewhere safe. *Restore from backup* loads it on a new phone or computer. Clearing the browser's site data erases the records.
+It is a web app, so it works the same on Android (Chrome on Nazeer's Honor) and iPhone (Safari on the manager's phone).
 
-### On a phone
+1. **Put it online once.** Host this `attendance` folder on any static web host (GitHub Pages, Netlify, Cloudflare Pages…) — phones cannot open a file from a computer.
+2. **Install it on each phone.** Open the address, then:
+   - **Honor / Android (Chrome):** ⋮ menu → *Add to Home screen* (or *Install app*).
+   - **iPhone (Safari):** Share button → *Add to Home Screen*. Do use the home-screen icon on the iPhone: Safari can clear a website's saved data after a week without a visit, but not an app added to the home screen.
+3. **Sign in.** Settings → *Share between phones* → each person signs in with **their own** email and password. Both phones then show the same register, month sheet and pay. Changes reach the other phone within about a minute (or press *Sync now*). Without signal the app keeps working and sends the changes later.
 
-Put the folder on any web host (GitHub Pages, Netlify and so on) and open the address on the phone. In Safari or Chrome, choose *Add to Home Screen*. Each device keeps its own records, so pick one device for taking the register.
+If both people mark the same person on the same day, the last change wins. Different people or different days never clash.
+
+### Creating the two logins (administrator, one-off)
+
+Records are shared through the Supabase project **nazeers-parts-board**. Only accounts listed as members can see or change anything.
+
+1. Supabase dashboard → *Authentication* → *Users* → *Add user* → *Create new user*: enter the email and a temporary password, tick *Auto Confirm User*. Do this for Nazeer and for the manager.
+2. Supabase dashboard → *SQL Editor*, run (with the real emails):
+   ```sql
+   insert into public.nms_members (user_id, role, name)
+   select id, 'owner', 'Nazeer' from auth.users where email = 'nazeer@example.com';
+   insert into public.nms_members (user_id, role, name)
+   select id, 'manager', 'Manager' from auth.users where email = 'manager@example.com';
+   ```
+3. Give each person their email and temporary password; they can change it under Settings → *Change password*.
+4. Recommended: *Authentication* → *Sign In / Providers* → *Email* → turn off *Allow new users to sign up*. (A stranger who signs up still sees nothing, but this keeps the user list clean.)
+
+To remove someone: delete their user in *Authentication* → *Users*; they lose access straight away.
+
+The database setup is in `supabase/001_nms_attendance_sync.sql` (already applied).
+
+### Backups
+
+The cloud keeps a copy once you are signed in, but a backup file is still worth having: **Settings → Download backup** now and then, and keep the file somewhere safe. *Restore from backup* loads it again.
 
 ## Adding it to another system
 
@@ -49,8 +76,9 @@ The module is built so it can be dropped into another of Nazeer's Motor Spares' 
 |---|---|
 | `attendance-core.js` | The engine: pay periods, pay calculation, WhatsApp text. No screen code. Works in the browser (`NMSAttendanceCore`) and in Node (`require`). |
 | `attendance-ui.js` | The screens. `NMSAttendance.mount(element, options)` draws everything inside one element. |
+| `attendance-sync.js` | Optional cloud sync. `NMSSync.create({ url, key })` gives a `storage` and `cloud` to pass to `mount`. |
 | `attendance.css` | Styles. Every rule is scoped to `.nms-att`, so it does not change the host's look. |
-| `index.html` + `start.js` | The stand-alone app. |
+| `index.html` + `start.js`, `sw.js`, `manifest.webmanifest`, `icons/` | The stand-alone app, installable on a phone and usable offline. |
 | `embed-example.html` + `embed-example.js` | A working example of mounting it inside another page. |
 
 ```html

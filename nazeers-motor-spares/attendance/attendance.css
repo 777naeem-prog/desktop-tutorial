@@ -15,10 +15,14 @@
 .na-top { position: sticky; top: 0; z-index: 5; background: var(--na-ink); color: #fff; padding: 12px 20px 0; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 20px; }
 .na-brand { padding-bottom: 12px; display: grid; line-height: 1.2; }
 .na-brand b { font-size: 18px; letter-spacing: .01em; }
-.na-brand i { font-style: normal; font-size: 12.5px; opacity: .7; }
+.na-brand i { font-style: normal; font-size: 12.5px; opacity: .75; display: flex; align-items: center; gap: 6px; }
+.na-dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa2ab; flex: none; display: inline-block; }
+.na-dot.ok { background: #2fbf6b; } .na-dot.bad { background: #e0a100; }
+.na-sync { display: flex; align-items: center; gap: 8px; font-weight: 500; margin: 0 0 6px; }
 .na-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .na-tabs button { border: 0; background: none; color: rgba(255, 255, 255, .7); padding: 10px 14px 12px; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; font-weight: 500; }
 .na-tabs button:hover { color: #fff; }
+.na-short { display: none; }
 .na-tabs button.on { color: #fff; border-bottom-color: var(--na-accent); }
 
 .na-main { padding: 20px; max-width: 1100px; margin: 0 auto; }
@@ -161,6 +165,9 @@
 .na-toast.on { opacity: 1; transform: translate(-50%, 0); }
 
 @media (max-width: 760px) {
+  .na-long { display: none; } .na-short { display: inline; }
+  .na-tabs { width: 100%; justify-content: space-between; }
+  .na-tabs button { padding: 10px 8px 12px; }
   .na-main { padding: 14px 12px; }
   .na-top { padding: 10px 12px 0; }
   .na-row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "who" "seg" "extra"; padding: 12px; }
